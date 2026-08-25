@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Python tooling
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check --requirement requirements-tooling.txt
+
+      - name: Validate repository
+        run: tests/validate-repository
+
+      - name: Validate release input
+        run: |
+          release_tag="${GITHUB_REF_NAME}"
+          if [[ ! "${release_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf '%s\n' "Invalid release tag: ${release_tag}" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            printf '%s\n' "Release tag commit is not included in origin/main." >&2
+            exit 1
+          fi
+
+          manifest_path="release/manifests/${release_tag}.json"
+          .venv/bin/python release/validate-manifest \
+            --version "${release_tag}" \
+            --manifest "${manifest_path}"
+
+          printf 'RELEASE_TAG=%s\n' "${release_tag}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_MANIFEST=%s\n' "${manifest_path}" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin
+
+      - name: Build release assets
+        run: |
+          release/pull-images "${RELEASE_MANIFEST}" build/images
+          .venv/bin/python release/build-assets \
+            --version "${RELEASE_TAG}" \
+            --manifest "${RELEASE_MANIFEST}" \
+            --edge-image-archive build/images/edge-images.tar \
+            --server-image-archive build/images/server-images.tar \
+            --output dist
+          (cd dist && sha256sum --check SHA256SUMS)
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if release_state="$(gh release view "${RELEASE_TAG}" --json isDraft 2>/dev/null)"; then
+            if [[ "$(jq --raw-output '.isDraft' <<< "${release_state}")" != "true" ]]; then
+              printf '%s\n' "Release is already published: ${RELEASE_TAG}" >&2
+              exit 1
+            fi
+          else
+            gh release create "${RELEASE_TAG}" \
+              --draft \
+              --generate-notes \
+              --title "${RELEASE_TAG}" \
+              --verify-tag
+          fi
+
+          gh release upload "${RELEASE_TAG}" dist/* --clobber
+
+          expected_assets="$(printf '%s\n' \
+            "SHA256SUMS" \
+            "scrap-monitoring-edge-${RELEASE_TAG}-offline.tar.gz" \
+            "scrap-monitoring-edge-${RELEASE_TAG}-online.tar.gz" \
+            "scrap-monitoring-server-${RELEASE_TAG}-offline.tar.gz" \
+            "scrap-monitoring-server-${RELEASE_TAG}-online.tar.gz" | sort)"
+          actual_assets="$(gh release view "${RELEASE_TAG}" --json assets \
+            --jq '[.assets[].name] | sort | .[]')"
+          if [[ "${actual_assets}" != "${expected_assets}" ]]; then
+            printf '%s\n' "Release asset set does not match the expected set." >&2
+            exit 1
+          fi
+
+          gh release edit "${RELEASE_TAG}" --draft=false

@@ -29,6 +29,7 @@
 | Component 식별 | 고유 이름과 담당 기능 |
 | 배포 대상 | `edge` 또는 `server` |
 | Container image | GitHub Container Registry (GHCR) 경로와 Secure Hash Algorithm 256-bit (SHA-256) digest |
+| Package 접근 | 배포 Repository의 GitHub Actions에 부여한 GHCR read 권한 |
 | Platform | 운영체제와 CPU architecture |
 | 시작 명령 | Image 기본 명령 또는 Compose에서 필요한 명시적 명령 |
 | 설정 | 환경 변수 이름, 형식, 필수 여부와 공개 가능한 예시 값 |
@@ -53,7 +54,7 @@ Release 작업자는 다음 항목을 확정한다.
 | --- | --- |
 | 통합 버전 | `vMAJOR.MINOR.PATCH` 형식의 Release tag |
 | 기준 commit | 원격 `main` 이력에 포함된 검증 완료 commit |
-| Manifest | 통합 버전과 일치하는 Release manifest |
+| Manifest | `release/manifests/<version>.json`의 통합 버전과 일치하는 Release manifest |
 | Edge image 집합 | `linux/arm64`용 digest 고정 image |
 | Server image 집합 | `linux/amd64`용 digest 고정 image |
 | 외부 고지 | 포함한 image와 도구에 필요한 license 및 notice |
@@ -145,6 +146,14 @@ Release 생성은 다음 순서를 제공한다.
 재적용은 같은 목표 상태를 만들고 불필요한 CA, key와 영속 상태를 다시 생성하지 않는다.
 
 ## 실행 파일 계약
+
+### Release
+
+| 실행 파일 | 입력 | 성공 조건 |
+| --- | --- | --- |
+| `release/validate-manifest` | 통합 버전과 version manifest | Schema, version과 대상별 component 존재 확인 |
+| `release/pull-images` | 검증된 manifest와 출력 경로 | 대상 platform별 digest 고정 image archive 생성 |
+| `release/build-assets` | Manifest와 Edge 및 Server image archive | 대상별 package 4개와 checksum manifest 생성 |
 
 ### Delivery
 

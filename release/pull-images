@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+  printf '%s\n' 'Usage: pull-images <manifest> <output-directory>'
+  exit 0
+fi
+
+if [[ "$#" -ne 2 ]]; then
+  printf '%s\n' 'Usage: pull-images <manifest> <output-directory>' >&2
+  exit 1
+fi
+
+manifest_path="$1"
+output_directory="$2"
+
+if [[ ! -f "${manifest_path}" ]]; then
+  printf '%s\n' "Manifest not found: ${manifest_path}" >&2
+  exit 1
+fi
+
+mkdir -p "${output_directory}"
+for target in edge server; do
+  if [[ -e "${output_directory}/${target}-images.tar" ]]; then
+    printf '%s\n' "Image archive already exists: ${output_directory}/${target}-images.tar" >&2
+    exit 1
+  fi
+done
+
+temporary_directory="$(mktemp -d "${output_directory}/.image-archives.XXXXXX")"
+cleanup() {
+  rm -rf -- "${temporary_directory}"
+}
+trap cleanup EXIT
+
+for target in edge server; do
+  platform="$(jq --exit-status --raw-output ".targets.${target}.platform" "${manifest_path}")"
+  images=()
+  while IFS= read -r image; do
+    if [[ -n "${image}" ]]; then
+      images+=("${image}")
+    fi
+  done < <(jq --exit-status --raw-output ".targets.${target}.components[].image" "${manifest_path}")
+
+  if [[ "${#images[@]}" -eq 0 ]]; then
+    printf '%s\n' "Component list is empty: ${target}" >&2
+    exit 1
+  fi
+
+  for image in "${images[@]}"; do
+    docker pull --platform "${platform}" "${image}"
+  done
+  docker image save \
+    --output "${temporary_directory}/${target}-images.tar" \
+    "${images[@]}"
+done
+
+mv "${temporary_directory}/edge-images.tar" "${output_directory}/edge-images.tar"
+mv "${temporary_directory}/server-images.tar" "${output_directory}/server-images.tar"

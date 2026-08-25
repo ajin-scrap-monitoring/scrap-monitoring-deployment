@@ -25,48 +25,5 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install --disable-pip-version-check --requirement requirements-tooling.txt
 
-      - name: Validate Markdown
-        run: npx --yes markdownlint-cli2@0.23.2 "**/*.md"
-
-      - name: Validate YAML
-        run: .venv/bin/yamllint .github/workflows/ci.yml .yamllint.yml targets
-
-      - name: Validate JSON
-        run: jq empty release/*.json pki/config/*.json
-
-      - name: Validate Python
-        run: |
-          .venv/bin/ruff check release/build-assets tests
-          .venv/bin/ruff format --check release/build-assets tests
-
-      - name: Validate Docker Compose
-        run: |
-          docker compose -f targets/edge/compose.yaml config --quiet
-          docker compose -f targets/server/compose.yaml config --quiet
-
-      - name: Validate shell entrypoints
-        run: |
-          shellcheck \
-            delivery/apply-release \
-            delivery/verify-release \
-            delivery/online/fetch-release \
-            delivery/offline/build-bundle \
-            delivery/offline/import-bundle \
-            pki/validate-ca-state \
-            pki/ensure-server-certificate \
-            pki/verify-server-certificate
-
-      - name: Validate systemd units
-        run: |
-          systemd-analyze verify \
-            tests/systemd/fixtures/docker.service \
-            targets/edge/systemd/*.service \
-            targets/server/systemd/*.service \
-            pki/systemd/*.service \
-            pki/systemd/*.timer
-
-      - name: Run repository tests
-        run: .venv/bin/python -m unittest discover --start-directory tests --pattern 'test_*.py'
-
-      - name: Check Git whitespace
-        run: git diff --check
+      - name: Validate repository
+        run: tests/validate-repository

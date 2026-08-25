@@ -3,17 +3,21 @@
 ## 현재 상태
 
 GitHub 원격 Repository, 기본 설정, ruleset 4개와 CodeQL Default setup이 구성되어 있다.
-Repository에는 문서, 구현 대상 파일 뼈대와 CI 검증이 구성되어 있다. CI는 Markdown, YAML, JSON과
-JSON Schema, Docker Compose, Python, Shell, systemd, Release asset, checksum과 Public 범위를
-검사한다. Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline
-Bundle 2개와 checksum manifest 1개를 생성하는 경계가 검증되어 있다.
+Repository에는 문서, 구현 대상 파일 뼈대, CI와 Release workflow가 구성되어 있다. CI는 Markdown,
+YAML, GitHub Actions, JSON과 JSON Schema, Docker Compose, Python, Shell, systemd, Release asset,
+checksum과 Public 범위를 검사한다. Release workflow는 보호된 version tag, 원격 `main`, version
+manifest와 대상별 component를 검증하고 GHCR image 취득, asset 생성, Draft Release asset 집합
+확인과 게시를 수행한다.
+
+Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline Bundle 2개와
+checksum manifest 1개를 생성하는 경계가 검증되어 있다. 실제 version manifest와 component
+image가 없으므로 GHCR image 취득과 GitHub Release 게시는 아직 실행되지 않았다.
 
 Monitoring Server에는 Root CA, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
 인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
 Keychain에는 운영 Root CA trust가 등록되어 있다. Windows PC의 Client trust 등록, Camera Edge
 Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, Server 인증서를
-적용하는 일반 배포, 배포 도구의 실제 동작, GHCR image 취득과 GitHub Release 게시 자동화는
-아직 없다.
+적용하는 일반 배포와 배포 도구의 실제 동작은 아직 없다.
 
 ## 채택한 구조
 
@@ -30,6 +34,7 @@ Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, 
 | Release manifest 형식 | JSON 문서와 JSON Schema |
 | Container registry | GitHub Container Registry (GHCR) |
 | Component image 식별 | `ghcr.io` image의 SHA-256 digest |
+| Release image 인증 | `packages: read` 권한의 GitHub Actions `GITHUB_TOKEN` |
 | Release archive 형식 | `.tar.gz` |
 | 구현 언어 | Release asset 생성과 검증은 Python 3.10 이상, host 적용 도구는 Bash |
 | 비밀정보 | Git과 Release 외부의 대상별 host 설정 |
@@ -47,7 +52,8 @@ scrap-monitoring-deployment/
 |   `-- AGENTS.md
 |-- .github/
 |   `-- workflows/
-|       `-- ci.yml
+|       |-- ci.yml
+|       `-- release.yml
 |-- .markdownlint-cli2.jsonc
 |-- .yamllint.yml
 |-- delivery/
@@ -73,9 +79,14 @@ scrap-monitoring-deployment/
 |   |-- validate-ca-state
 |   `-- verify-server-certificate
 |-- release/
+|   |-- manifests/
+|   |   `-- README.md
 |   |-- build-assets
 |   |-- manifest.example.json
-|   `-- manifest.schema.json
+|   |-- manifest.schema.json
+|   |-- pull-images
+|   |-- release_manifest.py
+|   `-- validate-manifest
 |-- targets/
 |   |-- edge/
 |   |   |-- config/
@@ -98,7 +109,8 @@ scrap-monitoring-deployment/
 |   |-- test_entrypoints.py
 |   |-- test_public_content.py
 |   |-- test_release.py
-|   `-- test_repository.py
+|   |-- test_repository.py
+|   `-- validate-repository
 |-- AGENTS.md
 |-- .gitignore
 |-- requirements-tooling.txt
@@ -151,6 +163,10 @@ PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca`
 | 도구 | 버전 | 목적 | 출처 | license |
 | --- | --- | --- | --- | --- |
 | `actions/checkout` | `v6` | GitHub Actions의 Repository checkout | [`actions/checkout`](https://github.com/actions/checkout) | MIT |
+| Actionlint | `1.7.12` | GitHub Actions workflow 정적 검사 | [`rhysd/actionlint`](https://github.com/rhysd/actionlint) | MIT |
+| Docker Engine | GitHub-hosted runner 제공 version | 대상별 GHCR image pull과 archive 생성 | [Moby](https://github.com/moby/moby) | Apache-2.0 |
+| Go | GitHub-hosted runner 제공 version | Actionlint 실행 | [Go](https://go.dev/) | BSD-3-Clause |
+| Node.js | GitHub-hosted runner 제공 version | Markdown 검사 도구 실행 | [Node.js](https://nodejs.org/) | MIT |
 | Python | `3.10` 이상 | Release asset 생성과 Repository 테스트 | [Python](https://www.python.org/) | PSF-2.0 |
 | `jsonschema` | `4.26.0` | Release manifest JSON Schema 검증 | [PyPI](https://pypi.org/project/jsonschema/) | MIT |
 | Ruff | `0.16.4` | Python lint와 format 검사 | [PyPI](https://pypi.org/project/ruff/) | MIT |
@@ -158,11 +174,12 @@ PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca`
 | `yamllint` | `1.38.0` | YAML 검사 | [PyPI](https://pypi.org/project/yamllint/) | GPL-3.0 |
 | `jq` | GitHub-hosted runner 제공 version | JSON 문법 검사 | [jqlang](https://jqlang.org/) | MIT |
 | Docker Compose | GitHub-hosted runner 제공 version | Compose schema 검사 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
+| GitHub CLI | GitHub-hosted runner 제공 version | Draft Release 생성, asset 첨부와 게시 | [GitHub CLI](https://github.com/cli/cli) | MIT |
 | ShellCheck | GitHub-hosted runner 제공 version | Bash 정적 검사 | [ShellCheck](https://github.com/koalaman/shellcheck) | GPL-3.0 |
 | `systemd-analyze` | GitHub-hosted runner 제공 version | systemd unit 검사 | [systemd](https://github.com/systemd/systemd) | LGPL-2.1-or-later |
 
 ## 미확정 구현 결정
 
-- Component image 이름, 공개 범위와 인증 방식
+- Component image 이름, 공개 범위와 Repository별 package 접근 권한
 - Docker Engine과 Docker Compose의 지원 version 범위
 - Database migration, backup 선행 조건과 rollback 허용 범위
