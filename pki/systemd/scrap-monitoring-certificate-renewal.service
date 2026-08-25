@@ -1,0 +1,9 @@
+[Unit]
+Description=Scrap Monitoring Server certificate renewal
+Requires=scrap-monitoring-server.service
+After=scrap-monitoring-server.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/scrap-monitoring/server.env
+ExecStart=/usr/bin/env bash /srv/scrap-monitoring/deployment/current/pki/ensure-server-certificate

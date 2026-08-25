@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+  printf '%s\n' 'Usage: verify-release <package> <checksum-manifest>'
+  exit 0
+fi
+
+printf '%s\n' 'verify-release is not implemented.' >&2
+exit 1

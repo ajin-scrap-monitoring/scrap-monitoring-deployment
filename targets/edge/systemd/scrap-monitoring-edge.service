@@ -1,0 +1,16 @@
+[Unit]
+Description=Scrap Monitoring Edge
+Wants=network-online.target
+Requires=docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/scrap-monitoring/edge.env
+ExecStart=/usr/bin/env docker compose --project-directory /srv/scrap-monitoring/deployment/current/targets/edge up --detach --remove-orphans
+ExecStop=/usr/bin/env docker compose --project-directory /srv/scrap-monitoring/deployment/current/targets/edge down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
