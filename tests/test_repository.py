@@ -10,6 +10,7 @@ class RepositoryStructureTest(unittest.TestCase):
     def test_required_paths_exist(self) -> None:
         required_paths = [
             ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
             "delivery/apply-release",
             "delivery/verify-release",
             "delivery/online/fetch-release",
@@ -23,8 +24,13 @@ class RepositoryStructureTest(unittest.TestCase):
             "release/build-assets",
             "release/manifest.example.json",
             "release/manifest.schema.json",
+            "release/manifests/README.md",
+            "release/pull-images",
+            "release/release_manifest.py",
+            "release/validate-manifest",
             "targets/edge/compose.yaml",
             "targets/server/compose.yaml",
+            "tests/validate-repository",
         ]
         missing = [path for path in required_paths if not (REPOSITORY / path).is_file()]
         self.assertEqual([], missing)

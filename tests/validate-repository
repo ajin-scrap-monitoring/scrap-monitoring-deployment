@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${repository}"
+
+npx --yes markdownlint-cli2@0.23.2 "**/*.md"
+.venv/bin/yamllint .github/workflows .yamllint.yml targets
+find release pki/config -type f -name '*.json' -print0 | xargs -0 jq empty
+.venv/bin/ruff check release/build-assets release/validate-manifest release/release_manifest.py tests
+.venv/bin/ruff format --check release/build-assets release/validate-manifest release/release_manifest.py tests
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+docker compose -f targets/edge/compose.yaml config --quiet
+docker compose -f targets/server/compose.yaml config --quiet
+shellcheck \
+  delivery/apply-release \
+  delivery/verify-release \
+  delivery/online/fetch-release \
+  delivery/offline/build-bundle \
+  delivery/offline/import-bundle \
+  pki/validate-ca-state \
+  pki/ensure-server-certificate \
+  pki/verify-server-certificate \
+  release/pull-images \
+  tests/validate-repository
+systemd-analyze verify \
+  tests/systemd/fixtures/docker.service \
+  targets/edge/systemd/*.service \
+  targets/server/systemd/*.service \
+  pki/systemd/*.service \
+  pki/systemd/*.timer
+.venv/bin/python -m unittest discover --start-directory tests --pattern 'test_*.py'
+git diff --check

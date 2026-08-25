@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -16,15 +17,33 @@ SHELL_ENTRYPOINTS = [
     REPOSITORY / "pki" / "ensure-server-certificate",
     REPOSITORY / "pki" / "verify-server-certificate",
 ]
+IMPLEMENTED_ENTRYPOINTS = [
+    REPOSITORY / "release" / "pull-images",
+]
+PYTHON_ENTRYPOINTS = [
+    REPOSITORY / "release" / "build-assets",
+    REPOSITORY / "release" / "validate-manifest",
+]
 
 
 class EntrypointTest(unittest.TestCase):
     def test_shell_entrypoints_are_executable_and_have_help(self) -> None:
-        for entrypoint in SHELL_ENTRYPOINTS:
+        for entrypoint in [*SHELL_ENTRYPOINTS, *IMPLEMENTED_ENTRYPOINTS]:
             with self.subTest(entrypoint=entrypoint):
                 self.assertTrue(os.access(entrypoint, os.X_OK))
                 result = subprocess.run(
                     [str(entrypoint), "--help"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+
+        for entrypoint in PYTHON_ENTRYPOINTS:
+            with self.subTest(entrypoint=entrypoint):
+                self.assertTrue(os.access(entrypoint, os.X_OK))
+                result = subprocess.run(
+                    [sys.executable, str(entrypoint), "--help"],
                     check=False,
                     capture_output=True,
                     text=True,
