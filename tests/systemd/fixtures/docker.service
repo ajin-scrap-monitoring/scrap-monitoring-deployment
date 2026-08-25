@@ -1,0 +1,6 @@
+[Unit]
+Description=Docker service test fixture
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true

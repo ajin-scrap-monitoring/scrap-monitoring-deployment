@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "version": "v0.0.1",
+  "targets": {
+    "edge": {
+      "platform": "linux/arm64",
+      "components": []
+    },
+    "server": {
+      "platform": "linux/amd64",
+      "components": []
+    }
+  }
+}

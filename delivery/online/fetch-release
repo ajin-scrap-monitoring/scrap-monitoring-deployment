@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+  printf '%s\n' 'Usage: fetch-release <release-url> <output-directory>'
+  exit 0
+fi
+
+printf '%s\n' 'fetch-release is not implemented.' >&2
+exit 1

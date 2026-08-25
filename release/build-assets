@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import json
+import re
+import tarfile
+import tempfile
+from collections.abc import Iterable
+from pathlib import Path
+
+from jsonschema import Draft202012Validator
+
+VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build integrated deployment release assets."
+    )
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--edge-image-archive", required=True, type=Path)
+    parser.add_argument("--server-image-archive", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    return parser.parse_args()
+
+
+def load_manifest(
+    repository: Path, manifest_path: Path, version: str
+) -> dict[str, object]:
+    if not VERSION_PATTERN.fullmatch(version):
+        raise ValueError(f"invalid release version: {version}")
+
+    schema_path = repository / "release" / "manifest.schema.json"
+    with schema_path.open(encoding="utf-8") as schema_file:
+        schema = json.load(schema_file)
+    with manifest_path.open(encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(manifest)
+    if manifest["version"] != version:
+        raise ValueError("manifest version does not match --version")
+    return manifest
+
+
+def payload_files(repository: Path, target: str) -> Iterable[tuple[Path, Path]]:
+    roots = [repository / "targets" / target, repository / "delivery"]
+    if target == "server":
+        roots.append(repository / "pki")
+
+    for root in roots:
+        for source in sorted(root.rglob("*")):
+            if source.is_file() and "__pycache__" not in source.parts:
+                yield source, source.relative_to(repository)
+
+
+def normalize_tar_info(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    info.uid = 0
+    info.gid = 0
+    info.uname = "root"
+    info.gname = "root"
+    info.mtime = 0
+    return info
+
+
+def add_file(archive: tarfile.TarFile, source: Path, destination: Path) -> None:
+    info = normalize_tar_info(
+        archive.gettarinfo(str(source), arcname=destination.as_posix())
+    )
+    with source.open("rb") as source_file:
+        archive.addfile(info, source_file)
+
+
+def add_bytes(archive: tarfile.TarFile, content: bytes, destination: str) -> None:
+    info = tarfile.TarInfo(destination)
+    info.size = len(content)
+    info.mode = 0o644
+    normalize_tar_info(info)
+    from io import BytesIO
+
+    archive.addfile(info, BytesIO(content))
+
+
+def build_package(
+    output: Path,
+    repository: Path,
+    target: str,
+    manifest_bytes: bytes,
+    image_archive: Path | None,
+) -> None:
+    with (
+        output.open("wb") as raw_output,
+        gzip.GzipFile(
+            filename="", mode="wb", fileobj=raw_output, mtime=0
+        ) as compressed,
+        tarfile.open(
+            fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT
+        ) as archive,
+    ):
+        add_bytes(archive, manifest_bytes, "release-manifest.json")
+        for source, destination in payload_files(repository, target):
+            add_file(archive, source, destination)
+        if image_archive is not None:
+            add_file(archive, image_archive, Path("images") / image_archive.name)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_assets(args: argparse.Namespace) -> list[Path]:
+    repository = Path(__file__).resolve().parents[1]
+    manifest = load_manifest(repository, args.manifest.resolve(), args.version)
+    image_archives = {
+        "edge": args.edge_image_archive.resolve(),
+        "server": args.server_image_archive.resolve(),
+    }
+    for target, image_archive in image_archives.items():
+        if not image_archive.is_file():
+            raise FileNotFoundError(
+                f"{target} image archive not found: {image_archive}"
+            )
+
+    output_directory = args.output.resolve()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    names = {
+        "edge-online": f"scrap-monitoring-edge-{args.version}-online.tar.gz",
+        "server-online": f"scrap-monitoring-server-{args.version}-online.tar.gz",
+        "edge-offline": f"scrap-monitoring-edge-{args.version}-offline.tar.gz",
+        "server-offline": f"scrap-monitoring-server-{args.version}-offline.tar.gz",
+    }
+    reserved = [output_directory / name for name in names.values()]
+    reserved.append(output_directory / "SHA256SUMS")
+    existing = [path for path in reserved if path.exists()]
+    if existing:
+        raise FileExistsError(f"release output already exists: {existing[0]}")
+
+    manifest_bytes = (
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+    ).encode()
+    with tempfile.TemporaryDirectory(
+        prefix="release-", dir=output_directory
+    ) as temporary:
+        temporary_directory = Path(temporary)
+        build_package(
+            temporary_directory / names["edge-online"],
+            repository,
+            "edge",
+            manifest_bytes,
+            None,
+        )
+        build_package(
+            temporary_directory / names["server-online"],
+            repository,
+            "server",
+            manifest_bytes,
+            None,
+        )
+        build_package(
+            temporary_directory / names["edge-offline"],
+            repository,
+            "edge",
+            manifest_bytes,
+            image_archives["edge"],
+        )
+        build_package(
+            temporary_directory / names["server-offline"],
+            repository,
+            "server",
+            manifest_bytes,
+            image_archives["server"],
+        )
+
+        assets = [temporary_directory / name for name in names.values()]
+        checksum_path = temporary_directory / "SHA256SUMS"
+        checksum_path.write_text(
+            "".join(f"{sha256(asset)}  {asset.name}\n" for asset in assets),
+            encoding="utf-8",
+        )
+        for asset in [*assets, checksum_path]:
+            asset.replace(output_directory / asset.name)
+
+    return [output_directory / name for name in [*names.values(), "SHA256SUMS"]]
+
+
+def main() -> None:
+    for asset in build_assets(parse_args()):
+        print(asset)
+
+
+if __name__ == "__main__":
+    main()

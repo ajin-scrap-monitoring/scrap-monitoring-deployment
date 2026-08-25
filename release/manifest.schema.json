@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scrap Monitoring Release Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "version",
+    "targets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge",
+        "server"
+      ],
+      "properties": {
+        "edge": {
+          "$ref": "#/$defs/edgeTarget"
+        },
+        "server": {
+          "$ref": "#/$defs/serverTarget"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "image"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^ghcr\\.io/[a-z0-9._-]+/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "edgeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "components"
+      ],
+      "properties": {
+        "platform": {
+          "const": "linux/arm64"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/component"
+          }
+        }
+      }
+    },
+    "serverTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "components"
+      ],
+      "properties": {
+        "platform": {
+          "const": "linux/amd64"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/component"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Scrap Monitoring Server certificate renewal schedule
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+Unit=scrap-monitoring-certificate-renewal.service
+
+[Install]
+WantedBy=timers.target
