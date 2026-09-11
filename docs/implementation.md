@@ -6,8 +6,8 @@ GitHub 원격 Repository, 기본 설정, ruleset 4개와 CodeQL Default setup이
 Repository에는 문서, 구현 대상 파일 뼈대, CI와 Release workflow가 구성되어 있다. CI는 Markdown,
 YAML, GitHub Actions, JSON과 JSON Schema, Docker Compose, Python, Shell, systemd, Release asset,
 checksum과 Public 범위를 검사한다. Release workflow는 보호된 version tag, 원격 `main`, version
-manifest와 대상별 component를 검증하고 GHCR image 취득, asset 생성, Draft Release asset 집합
-확인과 게시를 수행한다.
+manifest와 대상별 component를 검증하고 Public GHCR image 취득, asset 생성, Draft Release asset
+집합 확인과 게시를 수행한다.
 
 Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline Bundle 2개와
 checksum manifest 1개를 생성하는 경계가 검증되어 있다. 실제 version manifest와 component
@@ -17,7 +17,9 @@ Monitoring Server에는 Root CA, Intermediate CA와 `step-ca` 상태가 구성�
 인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
 Keychain에는 운영 Root CA trust가 등록되어 있다. Windows PC의 Client trust 등록, Camera Edge
 Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, Server 인증서를
-적용하는 일반 배포와 배포 도구의 실제 동작은 아직 없다.
+적용하는 일반 배포와 배포 도구의 실제 동작은 아직 없다. 두 배포 대상 host에는 Docker Engine,
+Docker Compose plugin과 containerd가 설치되어 있고 Docker daemon의 부팅 자동 시작과 로그
+제한이 구성되어 있다.
 
 ## 채택한 구조
 
@@ -34,7 +36,10 @@ Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, 
 | Release manifest 형식 | JSON 문서와 JSON Schema |
 | Container registry | GitHub Container Registry (GHCR) |
 | Component image 식별 | `ghcr.io` image의 SHA-256 digest |
-| Release image 인증 | `packages: read` 권한의 GitHub Actions `GITHUB_TOKEN` |
+| Component image 공개 범위 | Public GHCR Package 기본, 정본에 예외를 기록한 경우에만 Private |
+| Release image 인증 | Public Package pull은 무인증, Private 예외는 최소 read-only 자격 증명 |
+| Image tag 정책 | Release version tag와 `sha-<full-git-sha>` source revision tag, `latest` 미사용 |
+| 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
 | Release archive 형식 | `.tar.gz` |
 | 구현 언어 | Release asset 생성과 검증은 Python 3.10 이상, host 적용 도구는 Bash |
 | 비밀정보 | Git과 Release 외부의 대상별 host 설정 |
@@ -152,11 +157,21 @@ Root CA 개인키는 암호화하지 않고 파일 접근 권한으로 보호한
 | `step` CLI | `0.30.6` | CA 초기화, trust Bootstrap, Server 인증서 요청과 갱신 | [`smallstep/cli`](https://github.com/smallstep/cli) | Apache-2.0 |
 | `step-ca` | `0.30.2` | Intermediate CA를 이용한 Server 인증서 발급 서비스 | [`smallstep/certificates`](https://github.com/smallstep/certificates) | Apache-2.0 |
 
+## 대상 host runtime
+
+두 배포 대상은 Docker 공식 APT 저장소의 Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과
+containerd `2.3.5`를 사용한다. 설치 패키지는 `docker-ce`, `docker-ce-cli`, `containerd.io`와
+`docker-compose-plugin`이며 Docker 공식 APT 저장소에서 취득한다. Docker daemon은 root 권한의
+systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가하지 않는다. Docker Buildx는
+기능별 Repository CI의 멀티플랫폼 image 빌드에 사용하고 대상 host에는 설치하지 않는다.
+
+서버의 Docker 컨테이너 로그는 `local` driver와 `20m` `max-size`, `5` `max-file`을 사용한다.
+엣지는 `local` driver와 `10m` `max-size`, `3` `max-file`을 사용한다. systemd 저널은 서버가
+최대 `1G`와 14일, 엣지가 최대 `256M`와 7일로 제한한다.
+
 ## 직접 의존성
 
-PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca` 0.30.2를
-사용한다. Docker Engine과 Docker Compose version은 첫 일반 배포 구현 시점에
-채택한다.
+PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca` 0.30.2를 사용한다.
 
 ## CI와 Release 도구
 
@@ -180,6 +195,5 @@ PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca`
 
 ## 미확정 구현 결정
 
-- Component image 이름, 공개 범위와 Repository별 package 접근 권한
-- Docker Engine과 Docker Compose의 지원 version 범위
+- Component image 이름과 Repository별 실행 계약
 - Database migration, backup 선행 조건과 rollback 허용 범위

@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  packages: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -53,14 +52,6 @@ jobs:
 
           printf 'RELEASE_TAG=%s\n' "${release_tag}" >> "${GITHUB_ENV}"
           printf 'RELEASE_MANIFEST=%s\n' "${manifest_path}" >> "${GITHUB_ENV}"
-
-      - name: Authenticate to GHCR
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-        run: |
-          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io \
-            --username "${GITHUB_ACTOR}" \
-            --password-stdin
 
       - name: Build release assets
         run: |

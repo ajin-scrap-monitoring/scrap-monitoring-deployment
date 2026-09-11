@@ -28,8 +28,9 @@
 | --- | --- |
 | Component 식별 | 고유 이름과 담당 기능 |
 | 배포 대상 | `edge` 또는 `server` |
-| Container image | GitHub Container Registry (GHCR) 경로와 Secure Hash Algorithm 256-bit (SHA-256) digest |
-| Package 접근 | 배포 Repository의 GitHub Actions에 부여한 GHCR read 권한 |
+| Container image | GitHub Container Registry (GHCR) 경로, Release image tag와 Secure Hash Algorithm 256-bit (SHA-256) digest |
+| Package 공개 범위 | Public 기본, 공개 제한 사유가 정본에 기록된 경우에만 Private |
+| Package 접근 | Public Package는 자격 증명 없이 pull하며 Private 예외는 read-only 자격 증명을 사용 |
 | Platform | 운영체제와 CPU architecture |
 | 시작 명령 | Image 기본 명령 또는 Compose에서 필요한 명시적 명령 |
 | 설정 | 환경 변수 이름, 형식, 필수 여부와 공개 가능한 예시 값 |
@@ -44,7 +45,8 @@
 
 Image tag만 제공하거나 `latest`처럼 변경 가능한 참조만 제공한 component는 통합 Release에
 포함하지 않는다. 상태 검사와 필수 설정이 확인되지 않은 component는 실제 Compose service로
-등록하지 않는다.
+등록하지 않는다. 배포 Compose와 Release manifest는 image tag가 아닌 digest 고정 참조를 사용하며
+통합 Release tag에 digest를 결합하지 않는다.
 
 ### Release 선택
 
@@ -69,13 +71,13 @@ Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release �
 | 항목 | 필수 내용 |
 | --- | --- |
 | Host | Linux 배포판, CPU architecture와 systemd 사용 가능 여부 |
-| Container runtime | 지원되는 Docker Engine과 Docker Compose version |
+| Container runtime | Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과 containerd `2.3.5` |
 | 배포 경로 | `/srv/scrap-monitoring/deployment` 쓰기 권한 |
 | 환경 설정 | 대상별 `/etc/scrap-monitoring/*.env` 실제 값 |
 | 영속 저장소 | Database, 영상, 운영 상태와 설정의 host 경로 및 권한 |
 | 장치 | Edge component가 사용하는 실제 장치 경로와 접근 권한 |
 | Network | Server Fully Qualified Domain Name (FQDN), 허용 port와 outbound 접근 |
-| Online 인증 | Private image를 취득할 때 필요한 최소 범위의 GHCR 자격 증명 |
+| Online 인증 | Public image는 불필요하며 Private Package 예외에만 최소 범위의 GHCR 자격 증명 |
 | PKI 상태 | Server의 기존 CA 상태와 Edge의 Root CA trust |
 | Offline 반입 | 대상별 Bundle과 checksum manifest를 읽을 수 있는 경로 |
 
@@ -217,7 +219,6 @@ Server는 Release 적용과 운영 상태 확인에만 사용한다.
 다음 입력이 없으면 관련 실제 구현을 완료된 것으로 기록하지 않는다.
 
 - Component image와 실행 계약이 없으면 대상별 Compose service 구성을 보류한다.
-- 지원 Docker Engine과 Docker Compose version이 없으면 대상 runtime 호환 범위를 확정하지 않는다.
 - Database migration과 rollback 계약이 없으면 schema 변경 Release의 자동 rollback을 허용하지 않는다.
 - 실제 CA 상태와 Server FQDN이 없으면 Server 인증서를 발급하거나 TLS 종단을 시작하지 않는다.
 - Release에 필요한 image가 없으면 실제 Offline Bundle과 GitHub Release를 게시하지 않는다.
