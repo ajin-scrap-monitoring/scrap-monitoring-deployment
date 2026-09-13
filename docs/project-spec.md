@@ -89,6 +89,31 @@ Release asset 유형은 3개다.
 Release는 모든 asset을 첨부한 뒤 게시한다. 게시된 Release의 tag와 asset은 변경하지 않고,
 수정이 필요하면 새 버전을 게시한다.
 
+## Container image 정책
+
+기능별 공개 개발 Repository가 게시하는 OCI (Open Container Initiative) image는 기본적으로
+Public GHCR (GitHub Container Registry) Package로 제공한다. 배포 제한이 있는 외부 코드나
+계약상 공개할 수 없는 산출물이 포함된 경우에만 Private Package를 사용하며, 해당 예외의
+이유와 배포 인증 경계를 구현 문서에 기록한다.
+
+| 항목 | 결정 |
+| --- | --- |
+| 사람이 읽는 image tag | 통합 Release version에서 파생한 `MAJOR.MINOR.PATCH` |
+| source revision tag | `sha-<full-git-sha>` |
+| 변경 가능한 tag | `latest`를 게시하지 않음 |
+| 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
+| image 공개 pull | 자격 증명 없이 허용 |
+| image 빌드 | 기능별 Repository CI에서 Docker Buildx 사용 |
+
+통합 배포 Repository는 image tag를 배포 식별자로 사용하지 않고 Release manifest에 기록한
+SHA-256 digest로 대상을 고정한다. 통합 Release의 `vMAJOR.MINOR.PATCH` tag에는 image digest를
+결합하지 않는다.
+
+배포 대상 host의 실행 환경은 Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과
+containerd `2.3.5`로 구성한다. Docker daemon은 root 권한의 systemd 서비스로 실행하며
+운영 사용자와 배포 계정을 `docker` 그룹에 추가하지 않는다. Docker Buildx는 기능별 image를
+멀티플랫폼으로 빌드하는 CI 환경에만 둔다.
+
 ## 설정과 비밀정보
 
 Repository와 Release에는 공개 가능한 설정 template만 포함한다. 자격 증명, 비밀키, 인증서

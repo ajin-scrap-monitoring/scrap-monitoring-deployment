@@ -22,6 +22,18 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 인증서 파일의 역할, 최초 Bootstrap, 일반 배포와 갱신 절차는 `docs/pki-operations.md`를 따른다.
 같은 사실은 하나의 정본에만 기록하고 `README.md`는 Repository와 문서의 진입점으로 사용한다.
 
+## 프로젝트 방향
+
+- 기능별 공개 개발 Repository는 검증한 OCI (Open Container Initiative) 컨테이너 이미지를 기본적으로 Public GHCR (GitHub Container Registry) Package로 게시함
+- GHCR Package의 기본 공개 범위는 Public이며, Private Package가 필요하면 해당 Repository의 정본에 공개 제한 이유, 읽기 인증과 배포 영향을 기록함
+- 기능별 Repository는 Release version에서 파생한 사람이 읽을 수 있는 image tag와 `sha-<full-git-sha>` source revision tag를 사용하고 `latest`를 게시하지 않음
+- `release` manifest와 대상 Compose는 image tag가 아닌 `ghcr.io/<organization>/<image>@sha256:<digest>` 형식의 digest 고정 참조를 사용함
+- 통합 Release tag는 `vMAJOR.MINOR.PATCH` 형식을 유지하며 digest를 tag 문자열에 결합하지 않음
+- 배포 대상 host는 Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과 containerd `2.3.5`를 사용함
+- Docker Buildx는 component CI의 멀티플랫폼 image 빌드에 사용하고 배포 대상 host에는 설치하지 않음
+- Docker daemon은 root 권한의 systemd 서비스로 실행하고 사용자를 `docker` 그룹에 추가하지 않으며 애플리케이션 컨테이너는 가능한 경우 비root 사용자로 실행함
+- 컨테이너 표준 출력과 표준 오류는 대상별 Docker `local` 로그 제한을 사용하고 애플리케이션이 제한되지 않은 host 파일 로그를 생성하지 않게 함
+
 ## 작업 시작
 
 1. `git status`와 관련 파일을 확인하여 기존 변경을 구분한다.
