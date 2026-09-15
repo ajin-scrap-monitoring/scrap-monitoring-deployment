@@ -55,8 +55,8 @@ release.env는 Release asset에서 생성한 파일이며 사람이 수정하지
 | Server | targets/server/.env.example | /etc/scrap-monitoring/server.env |
 
 .env.example은 변수 이름, 공개 가능한 형식과 schema version을 관리한다. 실제 파일은 현장 주소,
-Fully Qualified Domain Name (FQDN), 장치 경로와 host group ID를 보관하며 Git과 Release asset에
-포함하지 않는다.
+Fully Qualified Domain Name (FQDN), 장치 경로, host group ID와 독립적으로 확인한 Root CA
+fingerprint를 보관하며 Git과 Release asset에 포함하지 않는다.
 
 실제 환경 파일은 root:scrap-admin, file 0640을 사용한다. 배포 적용기는 값을 로그에 출력하거나
 Release 작업 경로로 복사하지 않는다.
@@ -147,6 +147,10 @@ Edge는 /usr/local/share/ca-certificates/scrap-monitoring-root-ca.crt의 기존 
 검증한다. 필요한 Container에는 같은 인증서를 read-only로 연결한다.
 
 Server의 인증서와 개인키 위치, 권한과 갱신 절차는 pki-operations.md에서 관리한다.
+Server 환경 파일의 `PKI_ROOT_CA_SHA256`은 Bootstrap 때 별도 위치에 기록한 Root CA의 DER
+SHA-256 fingerprint다. `PKI_CA_URL`은 host에서 접근하는 loopback 전용 `step-ca` URL이다. 배포
+도구는 fingerprint 입력과 Server PKI 경로의 인증서 및 fingerprint 파일을 교차 검증하며
+불일치하면 인증서를 발급하거나 갱신하지 않는다.
 
 ## 동기화
 
@@ -183,6 +187,8 @@ Server의 인증서와 개인키 위치, 권한과 갱신 절차는 pki-operatio
 | Backend Bearer token | 비밀정보 | Edge별 원문 Client 파일과 Server digest registry |
 | Camera Media Bearer token | 비밀정보 | Camera별 원문 Client 파일과 Server digest registry |
 | Root CA | PKI 상태 | Edge에 사전 설치한 인증서 |
+| PKI_ROOT_CA_SHA256 | Server 장비 환경설정 | Bootstrap 때 별도 확인한 Root CA fingerprint |
+| PKI_CA_URL | Server 장비 환경설정 | Host 인증서 자동화용 loopback CA URL |
 
 ## 현재 구현 상태
 

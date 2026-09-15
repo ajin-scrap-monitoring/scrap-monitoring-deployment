@@ -22,7 +22,8 @@ Camera Media Service runtime이 별도로 관리하므로 이 절차에 포함�
 | CA 이름 | `Scrap Monitoring CA` |
 | Root CA 이름 | `Scrap Monitoring Root CA` |
 | Intermediate CA 이름 | `Scrap Monitoring Intermediate CA` |
-| CA 내부 URL | `https://step-ca:9000` |
+| CA Container URL | `https://step-ca:9000` |
+| Host 인증서 자동화 URL | `https://127.0.0.1:9000` |
 | 발급 Provisioner | `deployment` JSON Web Key (JWK) |
 | Key 알고리즘 | Elliptic Curve (EC) P-256 |
 | Server 발급 범위 | 환경별 Server Fully Qualified Domain Name (FQDN) 1개 |
@@ -31,7 +32,7 @@ Camera Media Service runtime이 별도로 관리하므로 이 절차에 포함�
 
 ## 인증서 파일
 
-핵심 파일은 6개다.
+핵심 파일은 7개다.
 
 | 파일 | 공개 여부 | 소유 위치 | 책임 |
 | --- | --- | --- | --- |
@@ -41,6 +42,7 @@ Camera Media Service runtime이 별도로 관리하므로 이 절차에 포함�
 | `intermediate_ca.crt` | 공개 | Monitoring Server의 `step-ca`와 TLS chain | Root CA가 승인한 발급자 증명 |
 | `server.key` | 비밀 | Monitoring Server의 TLS 영속 상태 | HTTPS와 WSS Server 소유권 증명 |
 | `server.crt` | 공개 | Monitoring Server의 TLS 영속 상태 | Server 이름과 공개키 증명 |
+| `server-fullchain.pem` | 공개 | Monitoring Server의 TLS 영속 상태 | Server와 Intermediate 인증서 순서의 TLS chain |
 
 검증 chain은 다음과 같다.
 
@@ -62,19 +64,19 @@ PKI 영속 상태는 3개 경로로 분리한다.
 | 경로 | 내용 | 접근 기준 |
 | --- | --- | --- |
 | `/srv/scrap-monitoring/pki/root` | `root_ca.crt`, `root_ca.sha256` | `root:scrap-admin`, directory `0750`, file `0640` |
-| `/srv/scrap-monitoring/pki/step-ca` | Root CA 인증서 사본, Intermediate CA 상태, CA 설정과 database | `step-ca` service 전용 권한 |
-| `/srv/scrap-monitoring/pki/tls` | `server.crt`, `server.key`와 인증서 chain | TLS service 전용 쓰기 권한 |
+| `/srv/scrap-monitoring/pki/step-ca` | Root CA 인증서 사본, Intermediate CA 상태, CA 설정과 database | directory `0700`, `step-ca` service 전용 권한 |
+| `/srv/scrap-monitoring/pki/tls` | `server.crt`, `server.key`와 `server-fullchain.pem` | directory `0750`, file `0640`, TLS service group |
 
 `step-ca` 상태는 `STEPPATH=/srv/scrap-monitoring/pki/step-ca`를 기준으로 7개 항목을 사용한다.
 
 | 항목 | host 경로 | 접근 기준 |
 | --- | --- | --- |
-| Root CA 인증서 사본 | `/srv/scrap-monitoring/pki/step-ca/certs/root_ca.crt` | `step-ca` service 계정, file `0644` |
-| Intermediate CA 인증서 | `/srv/scrap-monitoring/pki/step-ca/certs/intermediate_ca.crt` | `step-ca` service 계정, file `0644` |
+| Root CA 인증서 사본 | `/srv/scrap-monitoring/pki/step-ca/certs/root_ca.crt` | directory `0755`, file `0644` |
+| Intermediate CA 인증서 | `/srv/scrap-monitoring/pki/step-ca/certs/intermediate_ca.crt` | directory `0755`, file `0644` |
 | 암호화된 Intermediate CA 개인키 | `/srv/scrap-monitoring/pki/step-ca/secrets/intermediate_ca_key` | `step-ca` service 계정, file `0600` |
 | Intermediate CA 암호 | `/srv/scrap-monitoring/pki/step-ca/secrets/intermediate_ca_password` | `step-ca` service 계정, file `0600` |
 | Provisioner 암호 | `/srv/scrap-monitoring/pki/step-ca/secrets/provisioner_password` | `step-ca` service 계정, file `0600` |
-| CA 설정 | `/srv/scrap-monitoring/pki/step-ca/config/ca.json` | `step-ca` service 계정, file `0640` |
+| CA 설정 | `/srv/scrap-monitoring/pki/step-ca/config/ca.json` | directory `0700`, file `0640` |
 | CA database | `/srv/scrap-monitoring/pki/step-ca/db` | `step-ca` service 계정, directory `0700` |
 
 `step-ca`는 Intermediate CA 암호를 Container의 `/run/secrets/step_ca_password`에 읽기 전용으로
@@ -121,8 +123,8 @@ PKI Bootstrap은 환경별 최초 1회 직접 수행하는 수동 절차다.
 3. 운영자가 Monitoring Server용 EC P-256 Intermediate CA 개인키와 인증서 서명 요청을 생성하고 개인키를 암호화한다.
 4. 운영자가 인증서 서명 요청을 격리한 Bootstrap 환경으로 전달하고 Root CA 개인키로 5년 Intermediate CA 인증서를 서명한다.
 5. 운영자가 암호화한 Root CA 개인키를 Monitoring Server 밖의 오프라인 저장소에 보관한다.
-6. 운영자가 `deployment` JWK Provisioner, 1년 Server 인증서 정책과 `https://step-ca:9000` 내부 URL을 `ca.json`에 설정한다.
-7. 운영자가 Root CA 인증서의 Secure Hash Algorithm 256-bit (SHA-256) fingerprint를 출력하여 별도 위치에 기록한다.
+6. 운영자가 `deployment` JWK Provisioner, 1년 Server 인증서 정책, `step-ca`와 `127.0.0.1` CA 이름을 `ca.json`에 설정한다.
+7. 운영자가 Root CA 인증서를 Distinguished Encoding Rules (DER) 형식으로 변환한 후 Secure Hash Algorithm 256-bit (SHA-256) fingerprint를 출력하여 별도 위치와 Server 환경 파일의 `PKI_ROOT_CA_SHA256`에 기록한다.
 8. 운영자가 Root CA 인증서와 fingerprint를 `/srv/scrap-monitoring/pki/root`에 설치하고 `root:scrap-admin`, directory `0750`, file `0640` 권한을 적용한다.
 9. 운영자가 `step-ca` 상태 7개 항목을 `/srv/scrap-monitoring/pki/step-ca`에 설치한다.
 10. 운영자가 `step-ca`를 시작하고 CA health와 인증서 chain을 확인한다.
@@ -162,12 +164,12 @@ Windows PC에서는 Root CA 인증서의 fingerprint를 기록값과 대조한 �
 
 일반 배포는 다음 작업을 자동화한다.
 
-1. 기존 Root CA 인증서와 fingerprint, Intermediate CA 인증서 및 개인키와 CA database의 존재 및 일관성을 확인한다.
-2. `step-ca`를 시작하고 health를 확인한다.
+1. 기존 Root CA 인증서와 DER SHA-256 fingerprint, Server 환경 파일의 예상 fingerprint, Intermediate CA 인증서 및 암호화 key, 권한, CA 설정과 database의 존재 및 일관성을 확인한다.
+2. Host가 loopback 전용 `https://127.0.0.1:9000`에서 기존 `step-ca`의 health를 확인한다.
 3. `server.key`가 없으면 Monitoring Server에서 생성하고 기존 파일이 있으면 유지한다.
 4. Server DNS 이름과 공개키를 포함한 인증서 요청을 `step-ca`에 전달한다.
-5. `step-ca`가 Intermediate CA 개인키로 서명한 `server.crt`와 인증서 chain을 반환한다.
-6. 배포 도구가 Server 인증서의 개인키 일치, DNS 이름, chain과 유효기간을 검사한다.
+5. `step-ca`가 Intermediate CA 개인키로 서명한 `server.crt`를 반환하고 배포 도구가 `server-fullchain.pem`을 생성한다.
+6. 배포 도구가 Server 인증서의 EC P-256 개인키 일치, DNS SAN 1개, chain, TLS Server 용도와 유효기간을 검사한다.
 7. 검증된 인증서와 개인키를 TLS 종단에 읽기 전용으로 연결한다.
 8. Edge 배포는 Root CA 인증서를 Camera Edge Agent Container의 `/run/scrap-monitoring/pki/root_ca.crt`에 읽기 전용으로 연결한다.
 9. TLS 종단과 Camera Edge Agent를 시작하거나 reload하고 HTTPS와 WSS 연결을 확인한다.
@@ -180,11 +182,12 @@ CA 상태가 없거나 fingerprint가 예상값과 다르면 일반 배포는 �
 일반 배포의 Server 인증서 갱신은 애플리케이션 Release와 독립적으로 자동 수행한다.
 
 1. 일반 배포 도구가 1년 Server 인증서의 남은 유효기간을 확인한다.
-2. Monitoring Server가 기존 개인키 또는 교체용 새 개인키로 인증서 갱신을 요청한다.
+2. Monitoring Server가 기존 개인키로 인증서 갱신을 요청한다.
 3. `step-ca`가 새 Server 인증서를 발급한다.
-4. 일반 배포 도구가 새 인증서의 개인키 일치, DNS 이름, chain과 유효기간을 검사한다.
-5. 일반 배포 도구가 검증된 파일로 전환하고 TLS 종단을 reload한다.
-6. 일반 배포 도구가 HTTPS와 WSS 연결을 확인하고 실패하면 기존 인증서로 복구한다.
+4. 일반 배포 도구가 새 인증서의 EC P-256 개인키 일치, DNS SAN 1개, chain, TLS Server 용도와 122일 이상의 남은 유효기간을 검사한다.
+5. 일반 배포 도구가 `server.crt`, `server.key`와 `server-fullchain.pem`을 검증된 파일로 전환하고 TLS 종단을 reload한다.
+6. 인증서 자동화 도구가 TLS service reload에 실패하면 기존 인증서로 복구한다.
+7. 일반 배포 도구가 HTTPS와 WSS 연결을 확인하고 실패하면 이전 Release 상태로 복구한다.
 
 Root CA 또는 Intermediate CA의 갱신과 교체는 일반 Server 인증서 갱신에 포함하지 않는 별도
 PKI 변경 작업이다.

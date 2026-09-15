@@ -9,9 +9,6 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[1]
 SHELL_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "apply-release",
-    REPOSITORY / "pki" / "validate-ca-state",
-    REPOSITORY / "pki" / "ensure-server-certificate",
-    REPOSITORY / "pki" / "verify-server-certificate",
 ]
 IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "verify-release",
@@ -22,6 +19,9 @@ IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "retire-auth-secret",
     REPOSITORY / "delivery" / "validate-auth-secrets",
     REPOSITORY / "delivery" / "validate-environment",
+    REPOSITORY / "pki" / "validate-ca-state",
+    REPOSITORY / "pki" / "ensure-server-certificate",
+    REPOSITORY / "pki" / "verify-server-certificate",
     REPOSITORY / "release" / "pull-images",
 ]
 PYTHON_ENTRYPOINTS = [

@@ -19,6 +19,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "delivery/validate-environment",
             "delivery/verify-release",
             "tests/test_delivery_release.py",
+            "tests/test_pki.py",
             "docs/configuration-management.md",
             "delivery/online/fetch-release",
             "delivery/release_verifier.py",

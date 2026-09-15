@@ -1,10 +1,127 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--help" ]]; then
-  printf '%s\n' 'Usage: verify-server-certificate'
-  exit 0
+usage() {
+  printf '%s\n' 'Usage: verify-server-certificate --fqdn <name> --root <file> --intermediate <file> --certificate <file> --key <file> [--min-valid-days <days>]'
+}
+
+fqdn="${SERVER_FQDN:-}"
+root_certificate="/srv/scrap-monitoring/pki/root/root_ca.crt"
+intermediate_certificate="/srv/scrap-monitoring/pki/step-ca/certs/intermediate_ca.crt"
+certificate="/srv/scrap-monitoring/pki/tls/server.crt"
+key="/srv/scrap-monitoring/pki/tls/server.key"
+min_valid_days=0
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --fqdn|--root|--intermediate|--certificate|--key|--min-valid-days)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --fqdn) fqdn="$2" ;;
+        --root) root_certificate="$2" ;;
+        --intermediate) intermediate_certificate="$2" ;;
+        --certificate) certificate="$2" ;;
+        --key) key="$2" ;;
+        --min-valid-days) min_valid_days="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+validate_fqdn() {
+  local name="$1"
+  local label
+  local labels=()
+  [[ "${#name}" -le 253 && "${name}" == *.* && "${name}" != *..* ]] || return 1
+  [[ "${name}" =~ ^[a-z0-9.-]+$ ]] || return 1
+  IFS='.' read -r -a labels <<< "${name}"
+  for label in "${labels[@]}"; do
+    [[ "${#label}" -ge 1 && "${#label}" -le 63 ]] || return 1
+    [[ "${label}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+  done
+}
+
+require_regular_file() {
+  local path="$1"
+  local label="$2"
+  if [[ -L "${path}" || ! -f "${path}" ]]; then
+    printf '%s\n' "${label} is missing or symbolic: ${path}" >&2
+    exit 1
+  fi
+}
+
+if ! validate_fqdn "${fqdn}"; then
+  printf '%s\n' "Invalid Server FQDN: ${fqdn}" >&2
+  exit 2
+fi
+if [[ ! "${min_valid_days}" =~ ^[0-9]+$ || "${min_valid_days}" -gt 3650 ]]; then
+  printf '%s\n' "Invalid minimum validity days: ${min_valid_days}" >&2
+  exit 2
 fi
 
-printf '%s\n' 'verify-server-certificate is not implemented.' >&2
-exit 1
+command -v openssl >/dev/null || { printf '%s\n' 'openssl is required.' >&2; exit 1; }
+require_regular_file "${root_certificate}" 'Root certificate'
+require_regular_file "${intermediate_certificate}" 'Intermediate certificate'
+require_regular_file "${certificate}" 'Server certificate'
+require_regular_file "${key}" 'Server private key'
+
+pem_begin="-----BEGIN CERT""IFICATE-----"
+if [[ "$(grep -c -- "${pem_begin}" "${certificate}" || true)" -ne 1 ]]; then
+  printf '%s\n' 'Server certificate file must contain exactly one certificate.' >&2
+  exit 1
+fi
+
+valid_seconds=$((min_valid_days * 86400))
+openssl x509 -in "${certificate}" -noout -checkend "${valid_seconds}" >/dev/null
+openssl verify \
+  -CAfile "${root_certificate}" \
+  -untrusted "${intermediate_certificate}" \
+  "${certificate}" >/dev/null
+
+mapfile -t subject_names < <(
+  openssl x509 -in "${certificate}" -noout -ext subjectAltName \
+    | grep -oE 'DNS:[^,[:space:]]+' \
+    | sed 's/^DNS://' || true
+)
+if [[ "${#subject_names[@]}" -ne 1 || "${subject_names[0]:-}" != "${fqdn}" ]]; then
+  printf '%s\n' 'Server certificate must contain only the requested DNS SAN.' >&2
+  exit 1
+fi
+
+certificate_public_key="$(
+  openssl x509 -in "${certificate}" -pubkey -noout \
+    | openssl pkey -pubin -outform DER 2>/dev/null \
+    | sha256sum \
+    | awk '{ print $1 }'
+)"
+private_public_key="$(
+  openssl pkey -in "${key}" -pubout -outform DER 2>/dev/null \
+    | sha256sum \
+    | awk '{ print $1 }'
+)"
+if [[ "${certificate_public_key}" != "${private_public_key}" ]]; then
+  printf '%s\n' 'Server certificate and private key do not match.' >&2
+  exit 1
+fi
+
+private_key_text="$(openssl pkey -in "${key}" -text -noout 2>/dev/null)"
+if ! grep -q 'ASN1 OID: prime256v1' <<< "${private_key_text}"; then
+  printf '%s\n' 'Server private key is not EC P-256.' >&2
+  exit 1
+fi
+if ! openssl x509 -in "${certificate}" -purpose -noout | grep -q '^SSL server : Yes$'; then
+  printf '%s\n' 'Server certificate is not valid for TLS server use.' >&2
+  exit 1
+fi
+
+printf '%s\n' "${certificate}"

@@ -1,10 +1,254 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--help" ]]; then
-  printf '%s\n' 'Usage: ensure-server-certificate'
+usage() {
+  printf '%s\n' 'Usage: ensure-server-certificate --fqdn <name> --expected-root-sha256 <digest> [--root-directory <path>] [--step-ca-directory <path>] [--tls-directory <path>] [--ca-url <url>] [--provisioner <name>] [--tls-group <group>] [--renew-before-days <days>] [--lock-file <path>]'
+}
+
+fqdn="${SERVER_FQDN:-}"
+expected_root_sha256="${PKI_ROOT_CA_SHA256:-}"
+root_directory="/srv/scrap-monitoring/pki/root"
+step_ca_directory="/srv/scrap-monitoring/pki/step-ca"
+tls_directory="/srv/scrap-monitoring/pki/tls"
+ca_url="${PKI_CA_URL:-https://127.0.0.1:9000}"
+provisioner="deployment"
+tls_group="${DASHBOARD_SCRAP_ADMIN_GID:-0}"
+renew_before_days=122
+lock_file="/run/lock/scrap-monitoring-certificate.lock"
+reload_service="scrap-monitoring-server.service"
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --fqdn|--expected-root-sha256|--root-directory|--step-ca-directory|--tls-directory|--ca-url|--provisioner|--tls-group|--renew-before-days|--lock-file)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --fqdn) fqdn="$2" ;;
+        --expected-root-sha256) expected_root_sha256="$2" ;;
+        --root-directory) root_directory="$2" ;;
+        --step-ca-directory) step_ca_directory="$2" ;;
+        --tls-directory) tls_directory="$2" ;;
+        --ca-url) ca_url="$2" ;;
+        --provisioner) provisioner="$2" ;;
+        --tls-group) tls_group="$2" ;;
+        --renew-before-days) renew_before_days="$2" ;;
+        --lock-file) lock_file="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${fqdn}" ]]; then
+  printf '%s\n' 'Server FQDN is required.' >&2
+  exit 2
+fi
+if [[ ! "${expected_root_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+  printf '%s\n' 'Expected Root CA SHA-256 fingerprint is required.' >&2
+  exit 2
+fi
+if [[ ! "${renew_before_days}" =~ ^[0-9]+$ || "${renew_before_days}" -gt 3650 ]]; then
+  printf '%s\n' "Invalid renewal threshold: ${renew_before_days}" >&2
+  exit 2
+fi
+if [[ ! "${ca_url}" =~ ^https://[^/[:space:]]+(:[0-9]+)?$ ]]; then
+  printf '%s\n' "Invalid CA URL: ${ca_url}" >&2
+  exit 2
+fi
+if [[ ! "${provisioner}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  printf '%s\n' "Invalid provisioner name: ${provisioner}" >&2
+  exit 2
+fi
+
+for command in flock getent openssl step systemctl; do
+  command -v "${command}" >/dev/null || {
+    printf '%s\n' "${command} is required." >&2
+    exit 1
+  }
+done
+
+if [[ "${tls_group}" =~ ^[0-9]+$ ]]; then
+  expected_tls_gid="${tls_group}"
+else
+  expected_tls_gid="$(getent group "${tls_group}" | awk -F: '{ print $3 }')"
+  if [[ -z "${expected_tls_gid}" ]]; then
+    printf '%s\n' "TLS group does not exist: ${tls_group}" >&2
+    exit 1
+  fi
+fi
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root_certificate="${root_directory}/root_ca.crt"
+intermediate_certificate="${step_ca_directory}/certs/intermediate_ca.crt"
+provisioner_password="${step_ca_directory}/secrets/provisioner_password"
+certificate="${tls_directory}/server.crt"
+key="${tls_directory}/server.key"
+fullchain="${tls_directory}/server-fullchain.pem"
+
+"${script_directory}/validate-ca-state" \
+  --root-directory "${root_directory}" \
+  --step-ca-directory "${step_ca_directory}" \
+  --expected-root-sha256 "${expected_root_sha256}" >/dev/null
+step ca health --ca-url "${ca_url}" --root "${root_certificate}" >/dev/null
+
+mkdir -p -- "$(dirname "${lock_file}")"
+if [[ -L "${lock_file}" ]]; then
+  printf '%s\n' "Certificate lock must not be symbolic: ${lock_file}" >&2
+  exit 1
+fi
+exec 9>"${lock_file}"
+flock --exclusive 9
+
+if [[ -L "${tls_directory}" ]]; then
+  printf '%s\n' "TLS directory must not be symbolic: ${tls_directory}" >&2
+  exit 1
+fi
+install -d -m 0750 -g "${tls_group}" "${tls_directory}"
+
+temporary_directory="$(mktemp -d "${tls_directory}/.certificate.XXXXXX")"
+staged_files=()
+cleanup() {
+  local staged
+  for staged in "${staged_files[@]}"; do
+    if [[ -e "${staged}" || -L "${staged}" ]]; then
+      rm -f -- "${staged}"
+    fi
+  done
+  if [[ -d "${temporary_directory}" ]]; then
+    find "${temporary_directory}" -depth -delete
+  fi
+}
+trap cleanup EXIT
+
+candidate_certificate="${temporary_directory}/server.crt"
+candidate_key="${temporary_directory}/server.key"
+candidate_fullchain="${temporary_directory}/server-fullchain.pem"
+
+if [[ -L "${fullchain}" ]]; then
+  printf '%s\n' 'Server fullchain must not be symbolic.' >&2
+  exit 1
+fi
+if [[ ! -e "${certificate}" && ! -L "${certificate}" \
+  && ! -e "${key}" && ! -L "${key}" \
+  && -e "${fullchain}" ]]; then
+  printf '%s\n' 'Existing Server certificate state is incomplete.' >&2
+  exit 1
+fi
+
+if [[ -e "${certificate}" || -L "${certificate}" || -e "${key}" || -L "${key}" ]]; then
+  if [[ -L "${certificate}" || ! -f "${certificate}" || -L "${key}" || ! -f "${key}" ]]; then
+    printf '%s\n' 'Existing Server certificate state is incomplete or symbolic.' >&2
+    exit 1
+  fi
+  "${script_directory}/verify-server-certificate" \
+    --fqdn "${fqdn}" \
+    --root "${root_certificate}" \
+    --intermediate "${intermediate_certificate}" \
+    --certificate "${certificate}" \
+    --key "${key}" \
+    --min-valid-days 0 >/dev/null
+
+  if "${script_directory}/verify-server-certificate" \
+    --fqdn "${fqdn}" \
+    --root "${root_certificate}" \
+    --intermediate "${intermediate_certificate}" \
+    --certificate "${certificate}" \
+    --key "${key}" \
+    --min-valid-days "${renew_before_days}" >/dev/null 2>&1; then
+    cp -- "${certificate}" "${candidate_certificate}"
+  else
+    step ca renew \
+      "${certificate}" \
+      "${key}" \
+      --out "${candidate_certificate}" \
+      --force \
+      --ca-url "${ca_url}" \
+      --root "${root_certificate}"
+  fi
+  cp -- "${key}" "${candidate_key}"
+else
+  step ca certificate \
+    "${fqdn}" \
+    "${candidate_certificate}" \
+    "${candidate_key}" \
+    --ca-url "${ca_url}" \
+    --root "${root_certificate}" \
+    --provisioner "${provisioner}" \
+    --provisioner-password-file "${provisioner_password}" \
+    --not-after 8760h \
+    --san "${fqdn}" \
+    --kty EC \
+    --curve P-256
+fi
+
+{
+  pem_begin="-----BEGIN CERT""IFICATE-----"
+  pem_end="-----END CERT""IFICATE-----"
+  sed -ne "/${pem_begin}/,/${pem_end}/p" "${candidate_certificate}"
+  sed -ne "/${pem_begin}/,/${pem_end}/p" "${intermediate_certificate}"
+} > "${candidate_fullchain}"
+
+"${script_directory}/verify-server-certificate" \
+  --fqdn "${fqdn}" \
+  --root "${root_certificate}" \
+  --intermediate "${intermediate_certificate}" \
+  --certificate "${candidate_certificate}" \
+  --key "${candidate_key}" \
+  --min-valid-days "${renew_before_days}" >/dev/null
+
+if [[ -f "${fullchain}" && ! -L "${fullchain}" ]] \
+  && [[ "$(stat -c '%a:%g' "${certificate}")" == "640:${expected_tls_gid}" ]] \
+  && [[ "$(stat -c '%a:%g' "${key}")" == "640:${expected_tls_gid}" ]] \
+  && [[ "$(stat -c '%a:%g' "${fullchain}")" == "640:${expected_tls_gid}" ]] \
+  && cmp -s "${certificate}" "${candidate_certificate}" \
+  && cmp -s "${key}" "${candidate_key}" \
+  && cmp -s "${fullchain}" "${candidate_fullchain}"; then
+  printf '%s\n' 'Server certificate is current.'
   exit 0
 fi
 
-printf '%s\n' 'ensure-server-certificate is not implemented.' >&2
-exit 1
+for name in server.crt server.key server-fullchain.pem; do
+  destination="${tls_directory}/${name}"
+  if [[ -f "${destination}" && ! -L "${destination}" ]]; then
+    cp -p -- "${destination}" "${temporary_directory}/${name}.previous"
+  fi
+done
+
+install_candidate() {
+  local source="$1"
+  local destination="$2"
+  local staged
+  staged="$(mktemp "${tls_directory}/.$(basename "${destination}").new.XXXXXX")"
+  install -m 0640 -g "${tls_group}" "${source}" "${staged}"
+  staged_files+=("${staged}")
+  mv -T -- "${staged}" "${destination}"
+}
+
+install_candidate "${candidate_key}" "${key}"
+install_candidate "${candidate_certificate}" "${certificate}"
+install_candidate "${candidate_fullchain}" "${fullchain}"
+
+if ! systemctl try-reload-or-restart "${reload_service}"; then
+  for name in server.crt server.key server-fullchain.pem; do
+    destination="${tls_directory}/${name}"
+    previous="${temporary_directory}/${name}.previous"
+    if [[ -f "${previous}" ]]; then
+      install_candidate "${previous}" "${destination}"
+    else
+      rm -f -- "${destination}"
+    fi
+  done
+  systemctl try-reload-or-restart "${reload_service}" >/dev/null 2>&1 || true
+  printf '%s\n' 'TLS service reload failed; previous certificate state was restored.' >&2
+  exit 1
+fi
+
+printf '%s\n' "${certificate}"

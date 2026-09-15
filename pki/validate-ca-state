@@ -1,10 +1,185 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--help" ]]; then
-  printf '%s\n' 'Usage: validate-ca-state'
-  exit 0
+usage() {
+  printf '%s\n' 'Usage: validate-ca-state [--root-directory <path>] [--step-ca-directory <path>] [--expected-root-sha256 <digest>]'
+}
+
+root_directory="/srv/scrap-monitoring/pki/root"
+step_ca_directory="/srv/scrap-monitoring/pki/step-ca"
+expected_root_sha256=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --root-directory|--step-ca-directory|--expected-root-sha256)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --root-directory) root_directory="$2" ;;
+        --step-ca-directory) step_ca_directory="$2" ;;
+        --expected-root-sha256) expected_root_sha256="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+command -v jq >/dev/null || { printf '%s\n' 'jq is required.' >&2; exit 1; }
+command -v openssl >/dev/null || { printf '%s\n' 'openssl is required.' >&2; exit 1; }
+
+root_certificate="${root_directory}/root_ca.crt"
+fingerprint_file="${root_directory}/root_ca.sha256"
+step_root_certificate="${step_ca_directory}/certs/root_ca.crt"
+intermediate_certificate="${step_ca_directory}/certs/intermediate_ca.crt"
+intermediate_key="${step_ca_directory}/secrets/intermediate_ca_key"
+intermediate_password="${step_ca_directory}/secrets/intermediate_ca_password"
+provisioner_password="${step_ca_directory}/secrets/provisioner_password"
+ca_config="${step_ca_directory}/config/ca.json"
+ca_database="${step_ca_directory}/db"
+
+require_directory() {
+  local path="$1"
+  local expected_mode="$2"
+  local label="$3"
+  if [[ -L "${path}" || ! -d "${path}" ]]; then
+    printf '%s\n' "${label} is missing or symbolic: ${path}" >&2
+    exit 1
+  fi
+  if [[ "$(stat -c '%a' "${path}")" != "${expected_mode}" ]]; then
+    printf '%s\n' "${label} mode must be ${expected_mode}: ${path}" >&2
+    exit 1
+  fi
+}
+
+require_file() {
+  local path="$1"
+  local expected_mode="$2"
+  local label="$3"
+  if [[ -L "${path}" || ! -f "${path}" ]]; then
+    printf '%s\n' "${label} is missing or symbolic: ${path}" >&2
+    exit 1
+  fi
+  if [[ "$(stat -c '%a' "${path}")" != "${expected_mode}" ]]; then
+    printf '%s\n' "${label} mode must be ${expected_mode}: ${path}" >&2
+    exit 1
+  fi
+}
+
+require_directory "${root_directory}" 750 'Root CA directory'
+require_directory "${step_ca_directory}" 700 'step-ca directory'
+require_directory "${step_ca_directory}/certs" 755 'step-ca certificate directory'
+require_directory "${step_ca_directory}/secrets" 700 'step-ca secret directory'
+require_directory "${step_ca_directory}/config" 700 'step-ca config directory'
+require_directory "${ca_database}" 700 'step-ca database directory'
+require_file "${root_certificate}" 640 'Root CA certificate'
+require_file "${fingerprint_file}" 640 'Root CA fingerprint'
+require_file "${step_root_certificate}" 644 'step-ca Root CA certificate'
+require_file "${intermediate_certificate}" 644 'Intermediate CA certificate'
+require_file "${intermediate_key}" 600 'Intermediate CA private key'
+require_file "${intermediate_password}" 600 'Intermediate CA password'
+require_file "${provisioner_password}" 600 'Provisioner password'
+require_file "${ca_config}" 640 'step-ca config'
+if [[ ! -s "${provisioner_password}" ]]; then
+  printf '%s\n' 'Provisioner password is empty.' >&2
+  exit 1
+fi
+if [[ -z "$(find "${ca_database}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  printf '%s\n' 'step-ca database directory is empty.' >&2
+  exit 1
 fi
 
-printf '%s\n' 'validate-ca-state is not implemented.' >&2
-exit 1
+stored_root_sha256="$(tr -d '[:space:]' < "${fingerprint_file}")"
+if [[ ! "${stored_root_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+  printf '%s\n' 'Stored Root CA fingerprint is invalid.' >&2
+  exit 1
+fi
+if [[ -n "${expected_root_sha256}" && "${expected_root_sha256}" != "${stored_root_sha256}" ]]; then
+  printf '%s\n' 'Expected Root CA fingerprint does not match stored state.' >&2
+  exit 1
+fi
+
+certificate_fingerprint() {
+  openssl x509 -in "$1" -outform DER \
+    | sha256sum \
+    | awk '{ print $1 }'
+}
+
+actual_root_sha256="$(certificate_fingerprint "${root_certificate}")"
+step_root_sha256="$(certificate_fingerprint "${step_root_certificate}")"
+if [[ "${actual_root_sha256}" != "${stored_root_sha256}" || "${step_root_sha256}" != "${stored_root_sha256}" ]]; then
+  printf '%s\n' 'Root CA certificate fingerprint does not match stored state.' >&2
+  exit 1
+fi
+
+openssl x509 -in "${root_certificate}" -noout -checkend 0 >/dev/null
+openssl x509 -in "${intermediate_certificate}" -noout -checkend 0 >/dev/null
+openssl verify -CAfile "${root_certificate}" "${root_certificate}" >/dev/null
+openssl verify -CAfile "${root_certificate}" "${intermediate_certificate}" >/dev/null
+
+root_subject="$(openssl x509 -in "${root_certificate}" -noout -subject -nameopt RFC2253)"
+root_issuer="$(openssl x509 -in "${root_certificate}" -noout -issuer -nameopt RFC2253)"
+intermediate_subject="$(openssl x509 -in "${intermediate_certificate}" -noout -subject -nameopt RFC2253)"
+if [[ "${root_subject#subject=}" != "${root_issuer#issuer=}" \
+  || "${root_subject}" != *'CN=Scrap Monitoring Root CA'* \
+  || "${intermediate_subject}" != *'CN=Scrap Monitoring Intermediate CA'* ]]; then
+  printf '%s\n' 'CA certificate identities do not match the deployment contract.' >&2
+  exit 1
+fi
+for ca_certificate in "${root_certificate}" "${intermediate_certificate}"; do
+  ca_text="$(openssl x509 -in "${ca_certificate}" -text -noout)"
+  if ! grep -q 'CA:TRUE' <<< "${ca_text}" \
+    || ! grep -q 'ASN1 OID: prime256v1' <<< "${ca_text}"; then
+    printf '%s\n' "CA certificate is not an EC P-256 CA: ${ca_certificate}" >&2
+    exit 1
+  fi
+done
+
+intermediate_certificate_key="$(
+  openssl x509 -in "${intermediate_certificate}" -pubkey -noout \
+    | openssl pkey -pubin -outform DER 2>/dev/null \
+    | sha256sum \
+    | awk '{ print $1 }'
+)"
+intermediate_private_key="$(
+  openssl pkey \
+    -in "${intermediate_key}" \
+    -passin "file:${intermediate_password}" \
+    -pubout \
+    -outform DER 2>/dev/null \
+    | sha256sum \
+    | awk '{ print $1 }'
+)"
+if [[ "${intermediate_certificate_key}" != "${intermediate_private_key}" ]]; then
+  printf '%s\n' 'Intermediate CA certificate and private key do not match.' >&2
+  exit 1
+fi
+
+if ! jq --exit-status --arg step_ca_directory "${step_ca_directory}" '
+  type == "object"
+  and .address == ":9000"
+  and (.dnsNames | type == "array"
+    and index("step-ca") != null
+    and index("127.0.0.1") != null)
+  and .root == ($step_ca_directory + "/certs/root_ca.crt")
+  and .crt == ($step_ca_directory + "/certs/intermediate_ca.crt")
+  and .key == ($step_ca_directory + "/secrets/intermediate_ca_key")
+  and .db.dataSource == ($step_ca_directory + "/db")
+  and (.db.type | type == "string" and length > 0)
+  and .authority.claims.defaultTLSCertDuration == "8760h"
+  and .authority.claims.maxTLSCertDuration == "8760h"
+  and any(.authority.provisioners[];
+    .type == "JWK" and .name == "deployment")
+' "${ca_config}" >/dev/null; then
+  printf '%s\n' 'step-ca config does not match the deployment contract.' >&2
+  exit 1
+fi
+
+printf '%s\n' "${stored_root_sha256}"
