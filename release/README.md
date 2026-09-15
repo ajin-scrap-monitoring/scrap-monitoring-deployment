@@ -12,4 +12,4 @@ Release manifest와 asset 생성 및 게시 동작은
 | `validate-targets` | Manifest image와 대상별 Compose service 교차 검증 |
 | `pull-images` | Manifest의 digest 고정 image 취득과 대상별 archive 생성 |
 | `build-assets` | 재현 가능한 Online Package, Offline Bundle과 checksum 생성 |
-| `verify-assets` | 생성된 Package 4개와 checksum 집합의 독립 검증 |
+| `verify-assets` | 생성된 Package 8개와 checksum 집합의 독립 검증 |

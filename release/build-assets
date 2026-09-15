@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
-from release_manifest import load_manifest
+from release_manifest import SCENARIOS, TARGETS, load_manifest, scenario_components
 
 COMMON_PAYLOAD_FILES = (
     "README.md",
@@ -65,8 +65,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--version", required=True)
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--edge-image-archive", required=True, type=Path)
-    parser.add_argument("--server-image-archive", required=True, type=Path)
+    parser.add_argument("--image-directory", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -79,14 +78,24 @@ def require_regular_file(source: Path, destination: Path) -> tuple[Path, Path]:
     return source, destination
 
 
-def tree_files(repository: Path, relative_root: Path) -> list[tuple[Path, Path]]:
+def tree_files(
+    repository: Path,
+    relative_root: Path,
+    *,
+    destination_root: Path | None = None,
+) -> list[tuple[Path, Path]]:
     root = repository / relative_root
     if root.is_symlink() or not root.is_dir():
         raise ValueError(f"payload root is missing or symbolic: {relative_root}")
 
     files = []
     for source in sorted(root.rglob("*")):
-        destination = source.relative_to(repository)
+        relative = source.relative_to(root)
+        destination = (
+            source.relative_to(repository)
+            if destination_root is None
+            else destination_root / relative
+        )
         if source.is_symlink():
             raise ValueError(f"payload source is symbolic: {destination}")
         if source.is_dir():
@@ -98,6 +107,7 @@ def tree_files(repository: Path, relative_root: Path) -> list[tuple[Path, Path]]
 def payload_files(
     repository: Path,
     target: str,
+    scenario: str,
     mode: str,
     manifest: dict[str, object],
 ) -> list[tuple[Path, Path]]:
@@ -105,15 +115,21 @@ def payload_files(
         Path(path) for path in [*COMMON_PAYLOAD_FILES, *MODE_PAYLOAD_FILES[mode]]
     }
     relative_files.add(Path("notices/README.md"))
-    for target_manifest in manifest["targets"].values():
-        for component in target_manifest["components"]:
-            relative_files.update(Path(path) for path in component["notices"])
+    for component in scenario_components(manifest, target, scenario):
+        relative_files.update(Path(path) for path in component["notices"])
 
     files = [
         require_regular_file(repository / path, path) for path in sorted(relative_files)
     ]
     files.extend(tree_files(repository, Path("docs")))
-    files.extend(tree_files(repository, Path("targets") / target))
+    files.extend(
+        tree_files(
+            repository,
+            Path("targets") / target / scenario,
+            destination_root=Path("targets") / target,
+        )
+    )
+    files.extend(tree_files(repository, Path("targets") / target / "systemd"))
     if target == "server":
         files.extend(tree_files(repository, Path("pki")))
 
@@ -156,6 +172,7 @@ def build_package(
     output: Path,
     repository: Path,
     target: str,
+    scenario: str,
     mode: str,
     manifest: dict[str, object],
     package_schema: dict[str, object],
@@ -164,15 +181,16 @@ def build_package(
 ) -> None:
     manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
     package = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "version": manifest["version"],
         "target": target,
+        "scenario": scenario,
         "mode": mode,
         "platform": manifest["targets"][target]["platform"],
         "manifestSha256": manifest_digest,
     }
     if image_archive is not None:
-        package["imageArchive"] = f"images/{target}-images.tar"
+        package["imageArchive"] = f"images/{target}-{scenario}-images.tar"
     Draft202012Validator(package_schema).validate(package)
     package_bytes = (
         json.dumps(package, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -189,13 +207,15 @@ def build_package(
     ):
         add_bytes(archive, package_bytes, "release-package.json")
         add_bytes(archive, manifest_bytes, "release-manifest.json")
-        for source, destination in payload_files(repository, target, mode, manifest):
+        for source, destination in payload_files(
+            repository, target, scenario, mode, manifest
+        ):
             add_file(archive, source, destination)
         if image_archive is not None:
             add_file(
                 archive,
                 image_archive,
-                Path("images") / f"{target}-images.tar",
+                Path("images") / f"{target}-{scenario}-images.tar",
             )
 
 
@@ -219,27 +239,30 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
         (repository / "release" / "package.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(package_schema)
-    image_archive_inputs = {
-        "edge": args.edge_image_archive,
-        "server": args.server_image_archive,
-    }
-    for target, image_archive in image_archive_inputs.items():
-        if image_archive.is_symlink() or not image_archive.is_file():
-            raise FileNotFoundError(
-                f"{target} image archive not found: {image_archive}"
-            )
-    image_archives = {
-        target: image_archive.resolve()
-        for target, image_archive in image_archive_inputs.items()
-    }
+    image_directory = args.image_directory.resolve()
+    if image_directory.is_symlink() or not image_directory.is_dir():
+        raise ValueError(
+            f"image archive directory is missing or symbolic: {image_directory}"
+        )
+    image_archives: dict[tuple[str, str], Path] = {}
+    for target in TARGETS:
+        for scenario in SCENARIOS:
+            image_archive = image_directory / f"{target}-{scenario}-images.tar"
+            if image_archive.is_symlink() or not image_archive.is_file():
+                raise FileNotFoundError(
+                    f"{target} {scenario} image archive not found: {image_archive}"
+                )
+            image_archives[target, scenario] = image_archive.resolve()
 
     output_directory = args.output.resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
     names = {
-        "edge-online": f"scrap-monitoring-edge-{args.version}-online.tar.gz",
-        "server-online": f"scrap-monitoring-server-{args.version}-online.tar.gz",
-        "edge-offline": f"scrap-monitoring-edge-{args.version}-offline.tar.gz",
-        "server-offline": f"scrap-monitoring-server-{args.version}-offline.tar.gz",
+        (target, scenario, mode): (
+            f"scrap-monitoring-{target}-{scenario}-{args.version}-{mode}.tar.gz"
+        )
+        for target in TARGETS
+        for scenario in SCENARIOS
+        for mode in ("online", "offline")
     }
     reserved = [output_directory / name for name in names.values()]
     reserved.append(output_directory / "SHA256SUMS")
@@ -254,47 +277,20 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
         prefix="release-", dir=output_directory
     ) as temporary:
         temporary_directory = Path(temporary)
-        build_package(
-            temporary_directory / names["edge-online"],
-            repository,
-            "edge",
-            "online",
-            manifest,
-            package_schema,
-            manifest_bytes,
-            None,
-        )
-        build_package(
-            temporary_directory / names["server-online"],
-            repository,
-            "server",
-            "online",
-            manifest,
-            package_schema,
-            manifest_bytes,
-            None,
-        )
-        build_package(
-            temporary_directory / names["edge-offline"],
-            repository,
-            "edge",
-            "offline",
-            manifest,
-            package_schema,
-            manifest_bytes,
-            image_archives["edge"],
-        )
-        build_package(
-            temporary_directory / names["server-offline"],
-            repository,
-            "server",
-            "offline",
-            manifest,
-            package_schema,
-            manifest_bytes,
-            image_archives["server"],
-        )
-
+        for target in TARGETS:
+            for scenario in SCENARIOS:
+                for mode in ("online", "offline"):
+                    build_package(
+                        temporary_directory / names[target, scenario, mode],
+                        repository,
+                        target,
+                        scenario,
+                        mode,
+                        manifest,
+                        package_schema,
+                        manifest_bytes,
+                        image_archives[target, scenario] if mode == "offline" else None,
+                    )
         assets = [temporary_directory / name for name in names.values()]
         checksum_path = temporary_directory / "SHA256SUMS"
         checksum_path.write_text(

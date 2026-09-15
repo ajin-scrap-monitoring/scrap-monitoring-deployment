@@ -36,6 +36,19 @@ Browser로 구성한다. Edge 장비에서는 LiDAR 처리와 Camera Edge Agent�
 Edge와 Server는 서로 다른 장비와 CPU 아키텍처를 사용하므로 독립적으로 설치하고 재시작할 수
 있어야 한다. 두 배포 단위의 호환 버전은 하나의 통합 배포 Release에서 함께 관리한다.
 
+배포 시나리오는 2개다.
+
+| 시나리오 | Edge 구성 | Server 구성 |
+| --- | --- | --- |
+| `hardware` | LiDAR SDK와 실제 LiDAR 2대, 실제 Camera | Backend, Camera Media Service, Dashboard와 TLS 종단 |
+| `simulation` | LiDAR Simulator, LiDAR Processing, Synthetic Camera Device Bridge와 Camera Edge | Backend, Camera Media Service, Dashboard, Visualizer와 TLS 종단 |
+
+`simulation`에서 LiDAR Simulator는 LiDAR SDK와 실제 LiDAR를 대체하고 LiDAR Processing에 Unix
+Domain Socket (UDS) gRPC endpoint 2개를 제공한다. Simulator는 Visualizer에 관측 JSON Lines를
+Transmission Control Protocol (TCP)으로 전송한다. Server의 Visualizer는 MJPEG WebSocket stream을
+Edge의 Device Bridge에 제공하고, Device Bridge는 Video4Linux (V4L2) loopback device에 초당 30 frame의
+합성 영상을 기록한다. Camera Edge는 해당 device를 실제 Camera와 같은 입력으로 사용한다.
+
 ## 배포 경로
 
 지원하는 배포 경로는 2개다.
@@ -83,8 +96,8 @@ Release asset 유형은 3개다.
 
 | asset | 수량 | 내용 |
 | --- | --- | --- |
-| Online Package | Edge와 Server 각 1개 | 대상별 Compose, Release manifest, 설정 template, 적용 도구와 외부 고지 |
-| Offline Bundle | Edge와 Server 각 1개 | Online Package 내용과 대상 CPU 아키텍처용 컨테이너 이미지 archive |
+| Online Package | 대상과 시나리오별 4개 | 대상별 Compose, Release manifest, 설정 template, 적용 도구와 외부 고지 |
+| Offline Bundle | 대상과 시나리오별 4개 | Online Package 내용과 대상 CPU 아키텍처용 컨테이너 image archive |
 | Checksum manifest | Release당 1개 | 모든 배포 asset의 Secure Hash Algorithm 256-bit (SHA-256) checksum |
 
 Release는 모든 asset을 첨부한 뒤 게시한다. 게시된 Release의 tag와 asset은 변경하지 않고,

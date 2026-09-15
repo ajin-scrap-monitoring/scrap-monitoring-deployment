@@ -12,7 +12,7 @@ Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계�
 독립 검증을 수행하고 쓰기 권한을 가진 publish job은 검증된 artifact만 Draft Release로 게시한다.
 
 환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
-대상별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
+대상과 시나리오별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
 `delivery/validate-environment`는 실제 값을 출력하지 않고 schema version, 변수 집합과 빈 값을
 검사한다. systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated
 environment 파일을 Compose 실행 환경으로 사용한다.
@@ -22,14 +22,14 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
 
-`delivery/apply-release`는 Package mode, host architecture와 image platform을 검증하고 취득 전용
-파일을 제외한 실행 payload를 불변 Version 경로에 staging한다. Manifest에서 release.env를,
+`delivery/apply-release`는 Package mode, scenario, host architecture와 image platform을 검증하고 취득 전용
+파일을 제외한 실행 payload를 `<version>-<scenario>` 불변 경로에 staging한다. Manifest에서 release.env를,
 Edge 설정 원본에서 CONFIG_SHA256을 생성하고 환경, secret과 Compose를 검증한 뒤 current와
 previous를 원자적으로 전환한다. systemd와 Compose 실행 상태가 실패하면 이전 link, Edge 파생
 설정과 Server 인증서를 복구한다.
 
 `delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
-version, target, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
+version, target, scenario, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
 GitHub Repository에서 명시한 version의 Online Package와 checksum만 HTTPS로 취득하고
 검증이 완료된 디렉토리를 원자적으로 공개한다.
 
@@ -46,8 +46,15 @@ Intermediate 인증서와 암호화 key 일치, 파일 권한과 `step-ca` 설�
 Release manifest는 Component 출처, full commit, Component version, image digest, Package 공개
 범위, Private 예외 사유, pull 인증 방식과 외부 고지 경로를 검증한다. Release asset
 생성기는 명시적 allowlist와 정규화된 archive metadata를 사용하여 재현 가능한 Online
-Package 2개, Offline Bundle 2개와 checksum manifest 1개를 생성한다. 각 Package에는
-target, mode, platform과 Manifest digest를 고정한 descriptor가 있다.
+Package 4개, Offline Bundle 4개와 checksum manifest 1개를 생성한다. 각 Package에는
+target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 있다.
+
+`targets`는 target과 `hardware`, `simulation` scenario로 분리되어 있다. Release manifest는
+시나리오별 component 집합을 명시하고, Package에는 선택한 scenario source tree만 표준
+`targets/<target>` 경로로 포함한다. systemd와 Compose 실행 경로는 scenario와 무관하게 유지한다.
+현재 Compose service는 외부 Component 실행 계약이 없어서 비어 있다. simulation 환경 파일은
+LiDAR Simulator, Visualizer와 Synthetic Camera Device Bridge가 필요한 host 입력을 정의하지만 실제
+service image, health check와 Compose 계약은 포함하지 않는다.
 
 Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
 GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지
@@ -86,22 +93,23 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | --- | --- |
 | Repository 경계 | Edge와 Server를 함께 관리하는 단일 통합 배포 Repository |
 | 배포 단위 | 독립적으로 적용 가능한 `edge`와 `server` |
-| 목표 상태 | `targets` 아래의 대상별 Docker Compose와 host 연동 |
+| 배포 시나리오 | target별 `hardware`와 `simulation` |
+| 목표 상태 | `targets/<target>/<scenario>` 아래의 Docker Compose와 host 연동 |
 | 배포 경로 | 같은 목표 상태를 사용하는 Outbound Pull과 Offline Bundle |
 | host 수명 주기 | Docker Compose를 시작하고 필수 mount를 확인하는 systemd 경계 |
 | host 배포 root | `/srv/scrap-monitoring/deployment` |
-| Version 경로 | `/srv/scrap-monitoring/deployment/versions/<version>` |
+| Version 경로 | `/srv/scrap-monitoring/deployment/versions/<version>-<scenario>` |
 | 활성 Version | `/srv/scrap-monitoring/deployment/current` symlink |
 | 이전 Version | `/srv/scrap-monitoring/deployment/previous` symlink |
 | 적용 상태 | `/srv/scrap-monitoring/deployment/state/<target>.json` |
 | 배포 lock | `/run/lock/scrap-monitoring-deployment.lock` |
-| target 환경 파일 | `/etc/scrap-monitoring/edge.env`, `/etc/scrap-monitoring/server.env` |
+| target 환경 파일 | `/etc/scrap-monitoring/edge.env`, `/etc/scrap-monitoring/server.env`와 `DEPLOYMENT_SCENARIO` |
 | Release 환경 파일 | Manifest에서 생성한 대상별 `release.env` |
 | Edge 파생 설정 | Component 설정에서 생성한 `CONFIG_SHA256` |
 | 환경설정 검증 | 공개 schema와 실제 파일의 version, 변수 집합과 빈 값 비교 |
 | 버전 해석 | 통합 Release manifest가 고정한 대상별 component image 집합 |
 | Release manifest 형식 | JSON 문서와 JSON Schema |
-| Release Package descriptor | Version, target, mode, platform, Manifest digest와 Offline image archive 경로 |
+| Release Package descriptor | Version, target, scenario, mode, platform, Manifest digest와 Offline image archive 경로 |
 | Release Package payload | 명시적 allowlist, symbolic link 거부와 재현 가능한 archive metadata |
 | Container registry | GitHub Container Registry (GHCR) |
 | Component image 식별 | `ghcr.io` image의 SHA-256 digest |
@@ -187,17 +195,25 @@ scrap-monitoring-deployment/
 |-- requirements-tooling.txt
 |-- targets/
 |   |-- edge/
-|   |   |-- config/
+|   |   |-- hardware/
+|   |   |   |-- .env.example
+|   |   |   `-- compose.yaml
+|   |   |-- simulation/
+|   |   |   |-- .env.example
+|   |   |   `-- compose.yaml
 |   |   |-- systemd/
 |   |   |   `-- scrap-monitoring-edge.service
-|   |   |-- .env.example
-|   |   `-- compose.yaml
+|   |   `--
 |   `-- server/
-|       |-- config/
+|       |-- hardware/
+|       |   |-- .env.example
+|       |   `-- compose.yaml
+|       |-- simulation/
+|       |   |-- .env.example
+|       |   `-- compose.yaml
 |       |-- systemd/
 |       |   `-- scrap-monitoring-server.service
-|       |-- .env.example
-|       `-- compose.yaml
+|       `--
 |-- tests/
 |   |-- compose/
 |   |-- delivery/
@@ -237,10 +253,8 @@ scrap-monitoring-deployment/
 
 | asset | 파일 이름 |
 | --- | --- |
-| Edge Online Package | `scrap-monitoring-edge-<version>-online.tar.gz` |
-| Server Online Package | `scrap-monitoring-server-<version>-online.tar.gz` |
-| Edge Offline Bundle | `scrap-monitoring-edge-<version>-offline.tar.gz` |
-| Server Offline Bundle | `scrap-monitoring-server-<version>-offline.tar.gz` |
+| Online Package | `scrap-monitoring-<target>-<scenario>-<version>-online.tar.gz` |
+| Offline Bundle | `scrap-monitoring-<target>-<scenario>-<version>-offline.tar.gz` |
 | Checksum manifest | `SHA256SUMS` |
 
 ## PKI host 경로

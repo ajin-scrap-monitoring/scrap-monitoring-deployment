@@ -29,10 +29,15 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expected_packages(version: str) -> dict[str, tuple[str, str]]:
+def expected_packages(version: str) -> dict[str, tuple[str, str, str]]:
     return {
-        f"scrap-monitoring-{target}-{version}-{mode}.tar.gz": (target, mode)
+        f"scrap-monitoring-{target}-{scenario}-{version}-{mode}.tar.gz": (
+            target,
+            scenario,
+            mode,
+        )
         for target in ("edge", "server")
+        for scenario in ("hardware", "simulation")
         for mode in ("online", "offline")
     }
 
@@ -75,7 +80,7 @@ def verify_assets(repository: Path, version: str, directory: Path) -> None:
             raise ValueError(f"release asset is not a regular file: {name}")
 
     verify_checksums(directory, set(packages))
-    for name, (target, _) in packages.items():
+    for name, (target, scenario, _) in packages.items():
         subprocess.run(
             [
                 str(repository / "delivery" / "verify-release"),
@@ -83,6 +88,8 @@ def verify_assets(repository: Path, version: str, directory: Path) -> None:
                 version,
                 "--target",
                 target,
+                "--scenario",
+                scenario,
                 "--package",
                 str(directory / name),
                 "--checksums",

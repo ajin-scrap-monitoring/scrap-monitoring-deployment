@@ -26,9 +26,10 @@ pki-operations.md를 따른다.
 Release manifest는 통합 버전과 대상별 OCI (Open Container Initiative) image digest의 정본이다.
 배포 적용기는 manifest를 검증한 뒤 대상별 release.env를 생성한다.
 
-대상별 Release 설정은 2종의 값을 포함한다.
+대상별 Release 설정은 3종의 값을 포함한다.
 
 - 통합 version을 가진 `DEPLOYMENT_REVISION`
+- 선택한 배포 시나리오를 가진 `DEPLOYMENT_SCENARIO`
 - Component 이름의 하이픈을 밑줄로 바꾸고 대문자로 변환한 `<COMPONENT_NAME>_IMAGE`
 
 release.env는 Release asset에서 생성한 파일이며 사람이 수정하지 않는다. Image 값은
@@ -40,8 +41,10 @@ release.env는 Release asset에서 생성한 파일이며 사람이 수정하지
 
 | 대상 | 공개 schema | 실제 파일 |
 | --- | --- | --- |
-| Edge | targets/edge/.env.example | /etc/scrap-monitoring/edge.env |
-| Server | targets/server/.env.example | /etc/scrap-monitoring/server.env |
+| Edge hardware | targets/edge/hardware/.env.example | /etc/scrap-monitoring/edge.env |
+| Edge simulation | targets/edge/simulation/.env.example | /etc/scrap-monitoring/edge.env |
+| Server hardware | targets/server/hardware/.env.example | /etc/scrap-monitoring/server.env |
+| Server simulation | targets/server/simulation/.env.example | /etc/scrap-monitoring/server.env |
 
 .env.example은 변수 이름, 공개 가능한 형식과 schema version을 관리한다. 실제 파일은 현장 주소,
 Fully Qualified Domain Name (FQDN), 장치 경로, host group ID와 독립적으로 확인한 Root CA
@@ -52,8 +55,12 @@ Release 작업 경로로 복사하지 않는다.
 
 ## Component 설정과 파생값
 
-Edge의 처리 설정은 /opt/ajin/config/edge.json에서 관리한다. 승인된 보정값, 센서 매핑,
-서비스 version manifest는 이 파일의 책임이다. 장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
+hardware Edge의 처리 설정은 /opt/ajin/config/edge.json에서 관리한다. simulation Edge의 처리 설정은
+/opt/ajin/config/edge-simulation.json, LiDAR Simulator 입력은 /opt/ajin/config/lidar-simulator,
+Simulator 실행 환경은 /etc/scrap-monitoring/lidar-simulator.env에서 관리한다. simulation Server의
+Visualizer Camera profile은 /srv/scrap-monitoring/config/visualizer-camera.json에서 관리한다.
+승인된 보정값, 센서 매핑, service version manifest와 simulation 입력은 Component 설정의 책임이다.
+장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
 CAMERA_ID와 CONFIG_REVISION이 설정 파일에도 있으면 배포 적용기가 값의 일치를 검증한다.
 
 CONFIG_SHA256은 edge.json의 정확한 byte에서 계산한 SHA-256 값이다. 운영자가 직접 입력하지 않고

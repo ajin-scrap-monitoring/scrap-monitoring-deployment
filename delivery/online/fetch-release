@@ -2,11 +2,12 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: fetch-release --version <version> --target <edge|server> --output <directory>'
+  printf '%s\n' 'Usage: fetch-release --version <version> --target <edge|server> --scenario <hardware|simulation> --output <directory>'
 }
 
 version=""
 target=""
+scenario=""
 output_directory=""
 
 while [[ "$#" -gt 0 ]]; do
@@ -20,9 +21,13 @@ while [[ "$#" -gt 0 ]]; do
       version="$2"
       shift 2
       ;;
-    --target)
+    --target|--scenario)
       [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
-      target="$2"
+      if [[ "$1" == "--target" ]]; then
+        target="$2"
+      else
+        scenario="$2"
+      fi
       shift 2
       ;;
     --output)
@@ -44,6 +49,10 @@ if [[ ! "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
   printf '%s\n' "Invalid release target: ${target}" >&2
+  exit 2
+fi
+if [[ "${scenario}" != "hardware" && "${scenario}" != "simulation" ]]; then
+  printf '%s\n' "Invalid release scenario: ${scenario}" >&2
   exit 2
 fi
 while [[ "${output_directory}" != "/" && "${output_directory}" == */ ]]; do
@@ -77,7 +86,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-asset_name="scrap-monitoring-${target}-${version}-online.tar.gz"
+asset_name="scrap-monitoring-${target}-${scenario}-${version}-online.tar.gz"
 release_base="https://github.com/ajin-scrap-monitoring/scrap-monitoring-deployment/releases/download/${version}"
 
 curl \
@@ -115,6 +124,7 @@ script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "${script_directory}/../verify-release" \
   --version "${version}" \
   --target "${target}" \
+  --scenario "${scenario}" \
   --package "${temporary_directory}/${asset_name}" \
   --checksums "${temporary_directory}/SHA256SUMS" >/dev/null
 
