@@ -1,10 +1,125 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--help" ]]; then
-  printf '%s\n' 'Usage: fetch-release <release-url> <output-directory>'
-  exit 0
+usage() {
+  printf '%s\n' 'Usage: fetch-release --version <version> --target <edge|server> --output <directory>'
+}
+
+version=""
+target=""
+output_directory=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --version)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      version="$2"
+      shift 2
+      ;;
+    --target)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      target="$2"
+      shift 2
+      ;;
+    --output)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      output_directory="$2"
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf '%s\n' "Invalid release version: ${version}" >&2
+  exit 2
+fi
+if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
+  printf '%s\n' "Invalid release target: ${target}" >&2
+  exit 2
+fi
+while [[ "${output_directory}" != "/" && "${output_directory}" == */ ]]; do
+  output_directory="${output_directory%/}"
+done
+if [[ -z "${output_directory}" || "${output_directory}" == "/" ]]; then
+  printf '%s\n' 'Output directory must be a non-root path.' >&2
+  exit 2
+fi
+if [[ -e "${output_directory}" || -L "${output_directory}" ]]; then
+  printf '%s\n' "Output path already exists: ${output_directory}" >&2
+  exit 1
 fi
 
-printf '%s\n' 'fetch-release is not implemented.' >&2
-exit 1
+command -v curl >/dev/null || { printf '%s\n' 'curl is required.' >&2; exit 1; }
+command -v python3 >/dev/null || { printf '%s\n' 'python3 is required.' >&2; exit 1; }
+
+output_parent="$(dirname "${output_directory}")"
+output_name="$(basename "${output_directory}")"
+if [[ "${output_name}" == "." || "${output_name}" == ".." ]]; then
+  printf '%s\n' 'Output directory name is invalid.' >&2
+  exit 2
+fi
+mkdir -p -- "${output_parent}"
+
+temporary_directory="$(mktemp -d "${output_parent}/.${output_name}.XXXXXX")"
+cleanup() {
+  if [[ -n "${temporary_directory}" && -d "${temporary_directory}" ]]; then
+    find "${temporary_directory}" -depth -delete
+  fi
+}
+trap cleanup EXIT
+
+asset_name="scrap-monitoring-${target}-${version}-online.tar.gz"
+release_base="https://github.com/ajin-scrap-monitoring/scrap-monitoring-deployment/releases/download/${version}"
+
+curl \
+  --fail \
+  --location \
+  --proto '=https' \
+  --proto-redir '=https' \
+  --tlsv1.2 \
+  --retry 3 \
+  --retry-all-errors \
+  --connect-timeout 30 \
+  --max-time 600 \
+  --max-filesize 536870912 \
+  --silent \
+  --show-error \
+  --output "${temporary_directory}/${asset_name}" \
+  "${release_base}/${asset_name}"
+curl \
+  --fail \
+  --location \
+  --proto '=https' \
+  --proto-redir '=https' \
+  --tlsv1.2 \
+  --retry 3 \
+  --retry-all-errors \
+  --connect-timeout 30 \
+  --max-time 60 \
+  --max-filesize 1048576 \
+  --silent \
+  --show-error \
+  --output "${temporary_directory}/SHA256SUMS" \
+  "${release_base}/SHA256SUMS"
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${script_directory}/../verify-release" \
+  --version "${version}" \
+  --target "${target}" \
+  --package "${temporary_directory}/${asset_name}" \
+  --checksums "${temporary_directory}/SHA256SUMS" >/dev/null
+
+chmod 0644 "${temporary_directory}/${asset_name}" "${temporary_directory}/SHA256SUMS"
+mv -T -- "${temporary_directory}" "${output_directory}"
+temporary_directory=""
+
+printf '%s\n' "${output_directory}"

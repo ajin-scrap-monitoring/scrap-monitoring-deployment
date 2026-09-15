@@ -20,6 +20,7 @@ COMMON_PAYLOAD_FILES = (
     "delivery/apply-release",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
+    "delivery/release_verifier.py",
     "delivery/retire-auth-secret",
     "delivery/validate-auth-secrets",
     "delivery/validate-environment",

@@ -10,9 +10,22 @@ from jsonschema import Draft202012Validator
 VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 
 
+def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError(f"duplicate JSON field: {key}")
+        document[key] = value
+    return document
+
+
 def validate_notice(repository: Path, notice: str) -> None:
     relative = PurePosixPath(notice)
-    if relative.is_absolute() or ".." in relative.parts:
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != notice
+        or ".." in relative.parts
+    ):
         raise ValueError(f"invalid notice path: {notice}")
 
     notices_root = (repository / "notices").resolve()
@@ -58,6 +71,11 @@ def validate_components(
             if image in images:
                 raise ValueError(f"duplicate component image: {image}")
             images.add(image)
+            image_path = image.removeprefix("ghcr.io/ajin-scrap-monitoring/").split(
+                "@", maxsplit=1
+            )[0]
+            if any(part in {"", ".", ".."} for part in image_path.split("/")):
+                raise ValueError(f"invalid component image path: {name}")
 
             for notice in component["notices"]:
                 validate_notice(repository, notice)
@@ -77,7 +95,7 @@ def load_manifest(
     with schema_path.open(encoding="utf-8") as schema_file:
         schema = json.load(schema_file)
     with manifest_path.open(encoding="utf-8") as manifest_file:
-        manifest = json.load(manifest_file)
+        manifest = json.load(manifest_file, object_pairs_hook=unique_object)
 
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(manifest)

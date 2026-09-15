@@ -2,6 +2,9 @@
 
 이 디렉토리는 배포 asset 검증과 적용, 애플리케이션 인증 정보 수명 주기 도구를 제공한다.
 
+`verify-release`는 Package checksum과 archive 안전성을 검증하고 Package descriptor와
+Manifest의 version, target, mode, platform과 digest를 교차 검증한다.
+
 인증 정보 도구는 4개다.
 
 | 실행 파일 | 역할 |
