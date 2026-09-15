@@ -27,5 +27,6 @@ Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Con
 
 ## 현재 상태
 
-환경설정 schema와 연결 계약이 반영되어 있다. 실제 Compose service, manifest 기반 release.env
-생성과 CONFIG_SHA256 생성은 아직 구현되지 않았다.
+환경설정 schema, 연결 계약과 Compose 시작 전 원문 token 검증이 반영되어 있다. 실제 Compose
+service, service별 secret 연결, manifest 기반 release.env 생성과 CONFIG_SHA256 생성은 아직
+구현되지 않았다.

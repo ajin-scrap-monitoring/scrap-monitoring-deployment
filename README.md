@@ -14,6 +14,20 @@
 | [`docs/implementation.md`](docs/implementation.md) | 채택한 배포 구조와 현재 구현 상태 |
 | [`docs/pki-operations.md`](docs/pki-operations.md) | Private PKI 수동 구성과 일반 배포 자동화 |
 
+## 빠른 시작
+
+Repository 검증에는 Python 3.10 이상, Node.js, Go, Docker Compose, ShellCheck와
+`systemd-analyze`가 필요하다.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install --requirement requirements-tooling.txt
+tests/validate-repository
+```
+
+배포 계약과 현재 미구현 범위는
+[`docs/implementation.md`](docs/implementation.md)의 현재 상태를 확인한다.
+
 ## 디렉토리
 
 | 경로 | 역할 |

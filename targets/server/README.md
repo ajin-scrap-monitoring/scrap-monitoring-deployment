@@ -25,6 +25,6 @@ Backend port는 Container network에만 두며 외부 Client는 Server의 HTTPS 
 
 ## 현재 상태
 
-환경설정 schema와 라우팅 계약이 반영되어 있다. Backend와 Edge Platform의 측정 계약 정합화,
-heartbeat API, Camera Media Service의 file 기반 secret 입력과 실제 Compose service는 아직
-구현되지 않았다.
+환경설정 schema, 라우팅 계약과 Compose 시작 전 digest registry 검증이 반영되어 있다. Backend와
+Edge Platform의 측정 계약 정합화, heartbeat API, Backend와 Camera Media Service의 digest
+registry 입력, service별 secret 연결과 실제 Compose service는 아직 구현되지 않았다.
