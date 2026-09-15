@@ -35,7 +35,7 @@ Camera Media Service runtime이 별도로 관리하므로 이 절차에 포함�
 
 | 파일 | 공개 여부 | 소유 위치 | 책임 |
 | --- | --- | --- | --- |
-| `root_ca_key` | 비밀 | Monitoring Server의 공유 Root 상태 | Intermediate CA 인증서 서명 |
+| `root_ca_key` | 비밀 | Monitoring Server 밖의 오프라인 저장소 | Intermediate CA 인증서 서명 |
 | `root_ca.crt` | 공개 | CA, Edge, Server와 관리자 컴퓨터 | 인증서 chain의 최상위 trust 기준 |
 | `intermediate_ca_key` | 비밀 | Monitoring Server의 `step-ca` 영속 상태 | Server 인증서 서명 |
 | `intermediate_ca.crt` | 공개 | Monitoring Server의 `step-ca`와 TLS chain | Root CA가 승인한 발급자 증명 |
@@ -61,7 +61,7 @@ PKI 영속 상태는 3개 경로로 분리한다.
 
 | 경로 | 내용 | 접근 기준 |
 | --- | --- | --- |
-| `/srv/scrap-monitoring/pki/root` | `root_ca.crt`, `root_ca.sha256`, 암호화하지 않은 `root_ca_key` | `root:scrap-admin`, directory `0750`, file `0640` |
+| `/srv/scrap-monitoring/pki/root` | `root_ca.crt`, `root_ca.sha256` | `root:scrap-admin`, directory `0750`, file `0640` |
 | `/srv/scrap-monitoring/pki/step-ca` | Root CA 인증서 사본, Intermediate CA 상태, CA 설정과 database | `step-ca` service 전용 권한 |
 | `/srv/scrap-monitoring/pki/tls` | `server.crt`, `server.key`와 인증서 chain | TLS service 전용 쓰기 권한 |
 
@@ -81,10 +81,11 @@ PKI 영속 상태는 3개 경로로 분리한다.
 연결하고 `--password-file`로 사용한다. 일반 배포는 Provisioner 암호로 최초 Server
 인증서 발급을 인가한다. Root CA 개인키는 `step-ca` 경로에 복사하지 않는다.
 
-`scrap-admin` 구성원은 `/srv/scrap-monitoring/pki/root/root_ca.crt`, `root_ca.sha256`와 암호화하지
-않은 `/srv/scrap-monitoring/pki/root/root_ca_key`를 읽을 수 있다. Root CA 개인키가 권한 없는 주체에게
-노출되거나 무단 서명이 의심되면 기존 Root CA의 사용을 중단하고 새 Root CA를 생성한 뒤
-Edge와 관리자 컴퓨터의 trust를 교체한다.
+`scrap-admin` 구성원은 `/srv/scrap-monitoring/pki/root/root_ca.crt`와 `root_ca.sha256`을 읽을 수
+있다. 암호화한 Root CA 개인키는 Monitoring Server에 설치하지 않고 오프라인 저장소에서만
+Intermediate CA 인증서 서명에 사용한다. Root CA 개인키가 권한 없는 주체에게 노출되거나 무단
+서명이 의심되면 기존 Root CA의 사용을 중단하고 새 Root CA를 생성한 뒤 Edge와 관리자 컴퓨터의
+trust를 교체한다.
 
 ## Client Root CA 배치
 
@@ -115,14 +116,16 @@ Server의 TLS 종단이 Server 인증서와 Intermediate CA 인증서를 chain�
 
 PKI Bootstrap은 환경별 최초 1회 직접 수행하는 수동 절차다.
 
-1. 운영자가 Server FQDN을 확인하고 해당 이름만 Server 인증서로 발급하도록 CA 정책에 설정한다.
-2. 운영자가 EC P-256 Key를 사용하여 10년 Root CA 인증서와 암호화하지 않은 개인키를 생성한다.
-3. 운영자가 EC P-256 Key를 사용하여 5년 Intermediate CA 인증서와 암호화한 개인키를 생성한다.
-4. 운영자가 `deployment` JWK Provisioner, 1년 Server 인증서 정책과 `https://step-ca:9000` 내부 URL을 `ca.json`에 설정한다.
-5. 운영자가 Root CA 인증서의 Secure Hash Algorithm 256-bit (SHA-256) fingerprint를 출력하여 별도 위치에 기록한다.
-6. 운영자가 Root CA 인증서와 암호화하지 않은 Root CA 개인키를 `/srv/scrap-monitoring/pki/root`에 설치하고 `root:scrap-admin`, directory `0750`, file `0640` 권한을 적용한다.
-7. 운영자가 `step-ca` 상태 7개 항목을 `/srv/scrap-monitoring/pki/step-ca`에 설치한다.
-8. 운영자가 `step-ca`를 시작하고 CA health와 인증서 chain을 확인한다.
+1. 운영자가 Server FQDN을 확인하고 해당 이름만 Server 인증서로 발급하도록 CA 정책을 확정한다.
+2. 운영자가 격리한 Bootstrap 환경에서 EC P-256 Key를 사용하여 10년 Root CA 인증서와 암호화한 개인키를 생성한다.
+3. 운영자가 Monitoring Server용 EC P-256 Intermediate CA 개인키와 인증서 서명 요청을 생성하고 개인키를 암호화한다.
+4. 운영자가 인증서 서명 요청을 격리한 Bootstrap 환경으로 전달하고 Root CA 개인키로 5년 Intermediate CA 인증서를 서명한다.
+5. 운영자가 암호화한 Root CA 개인키를 Monitoring Server 밖의 오프라인 저장소에 보관한다.
+6. 운영자가 `deployment` JWK Provisioner, 1년 Server 인증서 정책과 `https://step-ca:9000` 내부 URL을 `ca.json`에 설정한다.
+7. 운영자가 Root CA 인증서의 Secure Hash Algorithm 256-bit (SHA-256) fingerprint를 출력하여 별도 위치에 기록한다.
+8. 운영자가 Root CA 인증서와 fingerprint를 `/srv/scrap-monitoring/pki/root`에 설치하고 `root:scrap-admin`, directory `0750`, file `0640` 권한을 적용한다.
+9. 운영자가 `step-ca` 상태 7개 항목을 `/srv/scrap-monitoring/pki/step-ca`에 설치한다.
+10. 운영자가 `step-ca`를 시작하고 CA health와 인증서 chain을 확인한다.
 
 ## Client Root CA trust 등록
 
@@ -159,7 +162,7 @@ Windows PC에서는 Root CA 인증서의 fingerprint를 기록값과 대조한 �
 
 일반 배포는 다음 작업을 자동화한다.
 
-1. 기존 Root CA 인증서, Intermediate CA 인증서 및 개인키와 CA database의 존재 및 일관성을 확인한다.
+1. 기존 Root CA 인증서와 fingerprint, Intermediate CA 인증서 및 개인키와 CA database의 존재 및 일관성을 확인한다.
 2. `step-ca`를 시작하고 health를 확인한다.
 3. `server.key`가 없으면 Monitoring Server에서 생성하고 기존 파일이 있으면 유지한다.
 4. Server DNS 이름과 공개키를 포함한 인증서 요청을 `step-ca`에 전달한다.

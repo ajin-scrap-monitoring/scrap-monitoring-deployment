@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | Component 실행 계약 | 기능별 개발 Repository | Compose, 설정 template, 상태 검사와 배포 순서 |
 | Release 선택 | Release 작업자 | 통합 버전과 포함할 component image 집합 |
-| 대상 환경 계약 | 현장 운영 환경 | Runtime, host 자원, network, 설정, 비밀정보와 PKI 상태 |
+| 대상 환경 계약 | 현장 운영 환경 | Runtime, host 자원, network, 설정, secret 저장 경로와 PKI 상태 |
 
 ### Component 실행 계약
 
@@ -77,6 +77,7 @@ Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release �
 | 영속 저장소 | Database, 영상, 운영 상태와 설정의 host 경로 및 권한 |
 | 장치 | Edge component가 사용하는 실제 장치 경로와 접근 권한 |
 | Network | Server Fully Qualified Domain Name (FQDN), 허용 port와 outbound 접근 |
+| Secret 저장소 | 배포 도구가 생성한 애플리케이션 token을 설치할 host 경로와 접근 권한 |
 | Online 인증 | Public image는 불필요하며 Private Package 예외에만 최소 범위의 GHCR 자격 증명 |
 | PKI 상태 | Server의 기존 CA 상태와 Edge의 Root CA trust |
 | Offline 반입 | 대상별 Bundle과 checksum manifest를 읽을 수 있는 경로 |
@@ -95,7 +96,7 @@ Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상�
 | `release` | Manifest 검증, 대상별 package와 Bundle 생성, checksum 작성 |
 | `delivery/online` | Release metadata와 Online Package 취득 |
 | `delivery/offline` | Offline Bundle 생성, 검증과 image import |
-| `delivery` | 취득 경로와 무관한 검증, 적용, 상태 확인과 rollback |
+| `delivery` | 애플리케이션 token 관리, 공통 검증, 적용, 상태 확인과 rollback |
 | `targets` | Edge와 Server의 Compose 목표 상태와 systemd 연결 |
 | `pki` | 기존 CA 검증과 Server 인증서 발급, 갱신 및 검증 |
 
@@ -120,6 +121,34 @@ Release 생성은 다음 순서를 제공한다.
 
 두 배포 경로는 취득 단계만 다르고 검증 이후의 적용 동작을 공유한다.
 
+### 애플리케이션 인증 token
+
+애플리케이션 인증 token은 2종이다.
+
+| 인증 경계 | 식별 단위 | 요청 형식 |
+| --- | --- | --- |
+| Edge Platform에서 Backend | Edge | `Authorization: Bearer <edge-token>` |
+| Camera Edge에서 Camera Media Service | Camera | `Authorization: Bearer <camera-token>` |
+
+두 token은 서로 다른 권한과 rotation 범위를 가지며 값을 재사용하지 않는다. 배포 도구는
+credential Bootstrap 또는 명시적인 rotation에서 token을 생성하고 양쪽 대상의 Git 외부 secret
+저장소에 Client 원문과 Server digest를 설치한다. Credential Bootstrap은 장비 식별자를 확정한 뒤
+최초 Compose 시작 전에 수행한다. 일반 Release 적용은 기존 token을 생성하거나 교체하지 않고
+파일 형식, 식별자, digest와 권한을 검증한다. 정확한 파일 경로와 수명 주기는
+`configuration-management.md`를 따른다.
+
+최초 구축 순서는 5단계다.
+
+1. 운영자가 오프라인 Root CA와 Monitoring Server의 Intermediate CA를 Bootstrap한다.
+2. 운영자가 Root CA 인증서를 Edge와 관리자 Client의 trust store에 등록한다.
+3. 운영자가 대상별 장비 환경설정과 host 저장소를 구성한다.
+4. 운영자가 두 종류의 credential을 생성하고 Server와 해당 Edge에 설치하여 검증한다.
+5. 일반 배포가 기존 CA 상태를 검증하고 Server 인증서를 발급한 뒤 Docker Compose를 시작한다.
+
+후속 Release 배포는 5단계만 반복하고 기존 CA, token과 영속 데이터를 유지한다. Server 인증서의
+갱신 시점이 되면 일반 배포 또는 인증서 갱신 timer가 같은 Server 인증서 발급 절차를 수행한다.
+Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리한 명시적 운영 작업이다.
+
 ### Outbound Pull
 
 1. 대상과 통합 버전을 입력받는다.
@@ -139,7 +168,7 @@ Release 생성은 다음 순서를 제공한다.
 ### 공통 검증과 적용
 
 1. Asset checksum, Manifest schema, 통합 버전, 대상과 architecture를 확인한다.
-2. 대상별 실제 설정, host storage, 장치, network와 PKI 선행 조건을 확인한다.
+2. 대상별 실제 설정, host storage, 장치, network, 인증 파일과 PKI 선행 조건을 확인한다.
 3. 새 버전을 `/srv/scrap-monitoring/deployment` 아래의 독립된 version 경로에 staging한다.
 4. Docker Compose 구성을 검증하고 필요한 Server 인증서 상태를 준비한다.
 5. `current`가 가리키는 version을 전환하고 대상별 systemd unit을 시작하거나 재시작한다.
@@ -167,6 +196,10 @@ Release 생성은 다음 순서를 제공한다.
 | `delivery/offline/build-bundle` | Manifest와 대상 image archive | 대상별 Offline Bundle과 checksum 생성 |
 | `delivery/offline/import-bundle` | 대상별 Bundle과 checksum | 검증된 대상 image의 local import |
 | `delivery/verify-release` | Package 또는 Bundle과 checksum | checksum, Manifest, 대상과 architecture 검증 |
+| `delivery/generate-auth-secret` | 인증 경계, 식별자와 출력 경로 | 독립적인 256-bit token bundle 생성 |
+| `delivery/install-auth-secret` | 대상과 credential bundle | Edge 원문 token의 파일별 원자적 설치 또는 Server registry의 원자적 전환 |
+| `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 digest 폐기 |
+| `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자, digest와 권한 검증 |
 | `delivery/validate-environment` | 대상과 실제 환경 파일 | Schema version, 변수 집합과 빈 값 검증 |
 | `delivery/apply-release` | 검증된 대상 package | Version staging, 목표 상태 전환과 상태 확인 |
 
@@ -220,10 +253,10 @@ Backend와 Camera Media Service의 내부 port는 host 외부에 공개하지 �
 
 ### Component 연동
 
-Backend의 측정 수신은 Edge measurement contract v1.0을 원본 입력으로 처리한다. 같은 Bearer
-token 인증을 측정과 heartbeat에 적용하고 `measurement_id`의 고유성을 저장 transaction에서
-보장한다. 최초 저장은 동일한 `measurement_id`와 `accepted=true`, 동일 측정의 재전송은
-`accepted=true` 또는 `duplicate=true`로 확인한다.
+Backend의 측정 수신은 Edge measurement contract v1.0을 원본 입력으로 처리한다. Backend는
+Edge ID에 연결된 Bearer token을 측정과 heartbeat에 동일하게 검증하고 `measurement_id`의
+고유성을 저장 transaction에서 보장한다. 최초 저장은 동일한 `measurement_id`와
+`accepted=true`, 동일 측정의 재전송은 `accepted=true` 또는 `duplicate=true`로 확인한다.
 
 Backend는 `GOOD`, `DEGRADED`, `INVALID` 측정을 모두 수신한다. Edge 계약과 Backend domain
 model 사이의 site, Edge, 적재함, 단위와 품질 상태 변환은 Backend가 소유한다. 배포 Repository는
@@ -232,9 +265,16 @@ model 사이의 site, Edge, 적재함, 단위와 품질 상태 변환은 Backend
 Heartbeat endpoint는 Edge heartbeat contract v1.0을 검증하고 Edge별 최신 snapshot과 마지막 정상
 수신 시각을 갱신한다. 정상 처리는 response body 없이 2xx를 반환할 수 있다.
 
-Camera Media Service는 path의 Camera ID와 `Authorization: Bearer <camera-token>`을 검증하고 binary
-JPEG frame을 수신한다. TLS는 Server reverse proxy에서 종료하고 Media Service는 private Compose
-network의 WebSocket listener를 사용한다.
+Camera Media Service는 path의 Camera ID에 연결된 `Authorization: Bearer <camera-token>`을
+검증하고 binary JPEG frame을 수신한다. TLS는 Server reverse proxy에서 종료하고 Media Service는
+private Compose network의 WebSocket listener를 사용한다.
+
+관리자 Browser는 TLS 경계를 통해 Server에 연결하고 Backend가 소유하는 사용자 session과
+Cross-Site Request Forgery (CSRF) 보호를 사용한다. Reverse proxy는 Browser 요청에 배포 공용
+Bearer token을 추가하지 않는다. 같은 Edge 또는 Server 안의 service는 Unix Domain Socket (UDS)
+권한이나 외부에 공개하지 않은 Compose network로 격리하고 공유 Bearer token을 사용하지 않는다.
+Camera Media Service에서 Backend로 향하는 직접 API 호출은 현재 계약에 없으며, 해당 기능이
+추가되면 별도 service credential과 최소 권한을 Component 실행 계약에 포함한다.
 
 Component 이름, image와 실행 계약이 확인되기 전에는 빈 Compose service를 임의의 예제로 채우지
 않는다. 확인한 계약을 반영할 때 공개 설정은 대상별 `.env.example`과 `config`에 기록하고 실제 값은
@@ -262,8 +302,11 @@ Server는 Release 적용과 운영 상태 확인에만 사용한다.
 
 - Component image와 실행 계약이 없으면 대상별 Compose service 구성을 보류한다.
 - 실제 환경 파일의 schema가 대상별 `.env.example`과 일치하지 않으면 적용을 중단한다.
-- Backend가 Edge 측정 ACK와 heartbeat 계약을 제공하지 않으면 Server 연동 완료로 간주하지 않는다.
-- Camera Media Service가 file 기반 secret 입력을 제공하지 않으면 운영 배포 완료로 간주하지 않는다.
+- Backend가 Bearer token의 file 기반 입력, Edge 측정 ACK와 heartbeat 계약을 제공하지 않으면
+  Server 연동 완료로 간주하지 않는다.
+- Camera Media Service가 digest registry 기반 secret 입력을 제공하지 않으면 운영 배포 완료로
+  간주하지 않는다.
+- Backend의 Browser session과 CSRF 계약이 없으면 Browser 인증 경계를 완료로 간주하지 않는다.
 - Database migration과 rollback 계약이 없으면 schema 변경 Release의 자동 rollback을 허용하지 않는다.
 - 실제 CA 상태와 Server FQDN이 없으면 Server 인증서를 발급하거나 TLS 종단을 시작하지 않는다.
 - Release에 필요한 image가 없으면 실제 Offline Bundle과 GitHub Release를 게시하지 않는다.

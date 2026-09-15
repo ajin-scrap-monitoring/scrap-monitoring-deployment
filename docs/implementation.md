@@ -15,11 +15,21 @@ manifest와 대상별 component를 검증하고 Public GHCR image 취득, asset 
 검사한다. systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated
 environment 파일을 Compose 실행 환경으로 사용한다.
 
+Edge별 Backend Bearer token과 Camera별 Camera Media Service Bearer token은 배포 도구가 생성하고
+rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-bit token bundle 생성, Edge
+원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
+폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
+
+`delivery/online/fetch-release`, `delivery/offline/build-bundle`,
+`delivery/offline/import-bundle`, `delivery/verify-release`, `delivery/apply-release`와 PKI 실행 파일
+3개는 명령 계약만 유지하는 stub이다. Stub은 `--help`만 성공하고 실제 실행은 미구현 오류로
+종료하므로 현재 Repository만으로 end-to-end 배포를 수행할 수 없다.
+
 Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline Bundle 2개와
 checksum manifest 1개를 생성하는 경계가 검증되어 있다. 실제 version manifest와 component
 image가 없으므로 GHCR image 취득과 GitHub Release 게시는 아직 실행되지 않았다.
 
-Monitoring Server에는 Root CA, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
+Monitoring Server에는 Root CA 인증서, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
 인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
 Keychain에는 운영 Root CA trust가 등록되어 있다. Windows PC의 Client trust 등록, Camera Edge
 Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, Server 인증서를
@@ -33,7 +43,7 @@ Docker Compose plugin과 containerd가 설치되어 있고 Docker daemon의 부�
 | --- | --- | --- |
 | Edge Platform | LiDAR 2개, UDS 처리, 측정 및 heartbeat HTTPS, Camera WSS와 file token | 명시적 Root CA file 입력, Release image digest와 실제 Compose |
 | Backend | `/api/v1/metrics/ingest`, `X-Edge-API-Key`, Backend metric schema | Bearer 인증, Edge measurement schema, 멱등 ACK와 heartbeat API |
-| Camera Media Service | Camera별 Bearer 인증, binary JPEG WebSocket ingest와 최신 frame 1개 | file secret, 녹화, Browser 전달, health와 운영 검증 |
+| Camera Media Service | Camera별 Bearer 인증, `EDGE_AUTH_SECRET` 원문 token JSON 환경변수, binary JPEG WebSocket ingest와 최신 frame 1개 | Digest registry file, 녹화, Browser 전달, health와 운영 검증 |
 | Dashboard Nginx | TLS 종단, 정적 파일과 일반 `/api/` reverse proxy | Media WebSocket 전용 route와 독립 배포 Compose |
 
 Backend의 현재 인증, 요청 본문과 response는 Edge Platform 전송 계약과 일치하지 않는다.
@@ -65,9 +75,15 @@ Heartbeat endpoint는 Backend에 존재하지 않는다. Camera Media Service는
 | 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
 | Release archive 형식 | `.tar.gz` |
 | 구현 언어 | Release asset 생성과 검증은 Python 3.10 이상, host 적용 도구는 Bash |
-| 비밀정보 | Git과 Release 외부의 대상별 host 설정 |
+| 애플리케이션 인증 | Edge별 Backend token과 Camera별 Media token을 사용하는 Bearer 인증 |
+| Token 수명 주기 | 배포 도구가 credential Bootstrap과 명시적 rotation에서 생성 및 설치 |
+| Token Server 저장 | 식별자별 SHA-256 digest 1개, rotation 중 최대 2개 |
+| 내부 service 인증 | UDS 권한 또는 private Compose network, 공유 Bearer token 미사용 |
+| Browser 인증 | TLS, Backend 사용자 session과 CSRF 보호, reverse proxy 공용 token 미사용 |
+| Docker Compose secret | Service별 file secret 연결, host 파일 권한을 저장 보호 경계로 사용 |
+| 비밀정보 | Git과 Release 외부의 대상별 host 파일 |
 | 영속 데이터 | container image와 분리한 host storage |
-| Private PKI | Monitoring Server의 암호화하지 않은 공유 Root CA와 `step-ca` Intermediate CA를 사용하는 2단계 구조 |
+| Private PKI | 오프라인 Root CA와 Monitoring Server의 `step-ca` Intermediate CA를 사용하는 2단계 구조 |
 | PKI 실행 경계 | 수동 Bootstrap 및 Client trust 등록과 일반 배포가 자동화하는 Server 인증서 발급 및 갱신 |
 | CA 내부 연결 | Compose network의 `https://step-ca:9000` |
 | Server 인증서 발급 | `deployment` JWK Provisioner와 환경별 Server FQDN 1개 |
@@ -91,6 +107,10 @@ scrap-monitoring-deployment/
 |   |-- online/
 |   |   `-- fetch-release
 |   |-- apply-release
+|   |-- generate-auth-secret
+|   |-- install-auth-secret
+|   |-- retire-auth-secret
+|   |-- validate-auth-secrets
 |   |-- validate-environment
 |   `-- verify-release
 |-- docs/
@@ -136,6 +156,7 @@ scrap-monitoring-deployment/
 |   |-- pki/
 |   |-- release/
 |   |-- systemd/
+|   |-- test_auth_secrets.py
 |   |-- test_configuration.py
 |   |-- test_entrypoints.py
 |   |-- test_public_content.py
@@ -168,13 +189,14 @@ scrap-monitoring-deployment/
 
 | 상태 | host 경로 | 접근 기준 |
 | --- | --- | --- |
-| Root CA 인증서와 암호화하지 않은 개인키 | `/srv/scrap-monitoring/pki/root` | `root:scrap-admin`, directory `0750`, file `0640` |
+| Root CA 인증서와 fingerprint | `/srv/scrap-monitoring/pki/root` | `root:scrap-admin`, directory `0750`, file `0640` |
 | Intermediate CA와 `step-ca` 상태 | `/srv/scrap-monitoring/pki/step-ca` | `step-ca` service 전용 쓰기 권한 |
 | Server 인증서와 개인키 | `/srv/scrap-monitoring/pki/tls` | TLS service 전용 쓰기 권한 |
 
-Root CA 개인키는 암호화하지 않고 파일 접근 권한으로 보호한다. Intermediate CA 개인키는 별도 암호로
-암호화하고 `step-ca`만 읽을 수 있는 Git 외부 secret을 사용해 서비스를 시작한다. 정확한 파일
-위치와 Client trust 등록 절차는 [`docs/pki-operations.md`](pki-operations.md)를 따른다.
+Root CA 개인키는 암호화하여 Monitoring Server 밖의 오프라인 저장소에 보관한다. Intermediate CA
+개인키는 별도 암호로 암호화하고 `step-ca`만 읽을 수 있는 Git 외부 secret을 사용해 서비스를
+시작한다. 정확한 파일 위치와 Client trust 등록 절차는
+[`docs/pki-operations.md`](pki-operations.md)를 따른다.
 
 ## 채택한 PKI 도구
 
@@ -197,7 +219,14 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 
 ## 직접 의존성
 
-PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca` 0.30.2를 사용한다.
+| 도구 | 지원 version | 목적 | 출처 | license |
+| --- | --- | --- | --- | --- |
+| Bash | `5.1` 이상 | Host 배포와 인증 정보 도구 실행 | [GNU Bash](https://www.gnu.org/software/bash/) | GPL-3.0-or-later |
+| GNU Coreutils | `8.32` 이상 | CSPRNG byte 변환, file 설치, digest와 권한 처리 | [GNU Coreutils](https://www.gnu.org/software/coreutils/) | GPL-3.0-or-later |
+| `jq` | `1.6` 이상 | Credential metadata와 digest registry 검증 및 갱신 | [jqlang](https://jqlang.org/) | MIT |
+| `flock` | util-linux `2.37` 이상 | Server digest registry 갱신 직렬화 | [util-linux](https://github.com/util-linux/util-linux) | GPL-2.0-or-later |
+| `step` CLI | `0.30.6` | PKI Bootstrap, Server 인증서 요청과 갱신 | [`smallstep/cli`](https://github.com/smallstep/cli) | Apache-2.0 |
+| `step-ca` | `0.30.2` | Intermediate CA를 이용한 Server 인증서 발급 | [`smallstep/certificates`](https://github.com/smallstep/certificates) | Apache-2.0 |
 
 ## CI와 Release 도구
 
@@ -223,5 +252,5 @@ PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca`
 
 - 실제 Release manifest에 포함할 Component image digest
 - Backend의 Edge measurement 저장 변환과 heartbeat 상태 model
-- Camera Media Service의 file 기반 secret 계약과 Browser 전달 방식
+- Camera Media Service의 Browser 전달 방식
 - Database migration, backup 선행 조건과 rollback 허용 범위

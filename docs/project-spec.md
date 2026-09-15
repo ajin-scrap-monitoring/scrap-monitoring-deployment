@@ -120,6 +120,10 @@ Repository와 Release에는 공개 가능한 설정 template만 포함한다. �
 개인키, 실제 사설 주소와 현장별 값은 Git 또는 Release asset에 포함하지 않는다. 실제 설정과
 비밀정보는 각 대상 장비의 Git 외부 경로에서 관리하고 배포 버전을 바꾸어도 유지한다.
 
+통합 배포 도구는 Edge별 Backend Bearer token과 Camera별 Camera Media Service Bearer token의
+생성 및 rotation을 소유한다. 일반 Release 적용은 기존 token을 유지하며 token 값은 Online
+Package와 Offline Bundle에 포함하지 않는다.
+
 Release가 소유하는 image와 배포 revision, 장비가 소유하는 환경설정, Component 설정에서 계산하는
 파생값, 비밀 파일과 PKI 상태를 서로 다른 정본으로 관리한다. Release 적용은 장비 값을 자동으로
 덮어쓰지 않고 schema와 필수값을 검증한다. 정확한 분류, 경로와 동기화 규칙은
@@ -145,9 +149,10 @@ CA 상태를 전제로 자동 실행한다. CA 상태가 없거나 일치하지 
 생성하지 않고 실패해야 한다.
 
 Root CA 개인키, Intermediate CA 개인키, Server 개인키, CA database와 발급 자격 증명은 Git,
-Container image, Online Package와 Offline Bundle에 포함하지 않는다. Root CA 인증서와
-암호화하지 않은 Root CA 개인키는 `/srv/scrap-monitoring/pki/root`에 보관하고 `scrap-admin`
-구성원이 접근할 수 있게 한다.
+Container image, Online Package와 Offline Bundle에 포함하지 않는다. Root CA 개인키는 최초
+PKI Bootstrap에서 암호화하여 생성하고 Monitoring Server 밖의 오프라인 저장소에 보관한다.
+Monitoring Server의 `/srv/scrap-monitoring/pki/root`에는 Root CA 인증서와 fingerprint만
+보관한다.
 
 Intermediate CA 상태와 Server TLS 상태는 Monitoring Server의 Git 외부 영속 경로에서
 관리한다. 일반 배포와 `step-ca`는 Root CA 개인키를 읽지 않으며 Intermediate CA 개인키를
@@ -175,6 +180,7 @@ storage에 저장한다. 배포 갱신과 컨테이너 재생성은 영속 데�
 
 - Edge와 Server의 Docker Compose 구성
 - 대상별 공개 설정 template와 host 수명 주기 연동
+- Edge와 Server 사이의 애플리케이션 Bearer token 생성 및 rotation
 - Outbound Pull 취득, 검증, 적용과 재실행
 - Offline Bundle 생성, 반입 후 검증, image load와 적용
 - 통합 배포 manifest, Release asset과 checksum 생성

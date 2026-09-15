@@ -82,19 +82,63 @@ Generated environment 파일은 Release 설정이나 장비 환경설정의 정�
 
 ## 비밀정보
 
-비밀정보는 환경변수 값이 아니라 대상 장비의 파일로 관리하고 Compose secret 또는 read-only
-file mount로 Container에 제공한다.
+비밀정보는 환경변수 값이 아니라 대상 장비의 파일로 관리한다. Docker Compose는 host 파일을
+service별 secret으로 연결하고 각 service는 필요한 secret만 `/run/secrets` 아래에서 읽는다.
+일반 [Docker Compose의 file 기반 secret](https://docs.docker.com/compose/how-tos/use-secrets/)은
+host 파일 bind mount이므로 host 저장소의 소유권과 권한이 비밀정보 보호의 기준이다.
 
-| 대상 | 비밀정보 경로 | 내용 |
-| --- | --- | --- |
-| Edge | /opt/ajin/secrets/edge-token | Backend 측정 및 heartbeat Bearer token |
-| Edge | /opt/ajin/secrets/camera-token | Camera Media Service Bearer token |
-| Server | /srv/scrap-monitoring/secrets | Backend, Media와 외부 연동 자격 증명 |
-| Server | /srv/scrap-monitoring/pki/tls/server.key | HTTPS 및 WSS Server 개인키 |
+애플리케이션 인증 token은 2종이다.
+
+| 인증 경계 | Client 파일 | Server 파일 | 식별 단위 |
+| --- | --- | --- | --- |
+| Edge Platform에서 Backend | `/opt/ajin/secrets/edge-token` | `/srv/scrap-monitoring/secrets/backend/edge-token-digests.json` | Edge ID |
+| Camera Edge에서 Camera Media Service | `/opt/ajin/secrets/camera-token` | `/srv/scrap-monitoring/secrets/media/camera-token-digests.json` | Camera ID |
+
+배포 도구는 credential Bootstrap에서 각 인증 관계마다 운영체제의 Cryptographically Secure
+Pseudo-Random Number Generator (CSPRNG)로 독립적인 256-bit opaque token을 생성한다. Client
+파일은 요청의 Bearer 값으로 사용할 원문 token 하나를 가진다. Server JSON 파일은 식별자별로
+SHA-256 digest를 1개 또는 rotation 중 2개 가지며 원문 token을 저장하지 않는다. Server
+component는 수신한 Bearer token의 digest를 계산하고 constant-time 비교를 수행한다. 배포 도구는
+같은 token을 두 인증 경계에 재사용하지 않는다.
+
+Credential Bootstrap은 장비 환경설정에서 Edge ID와 Camera ID를 확정한 뒤 최초 Compose 시작
+전에 수행한다. `delivery/generate-auth-secret`이 전달용 credential bundle을 만들고
+`delivery/install-auth-secret`이 Server digest와 해당 Edge 원문 token을 설치한다. 설치 후
+`delivery/validate-auth-secrets`가 파일 형식, 식별자, digest와 접근 권한을 검사한다.
+
+Token rotation은 명시적으로 다음 순서로 수행한다.
+
+1. `delivery/generate-auth-secret`으로 같은 식별자의 새 bundle을 생성한다.
+2. `delivery/install-auth-secret --rotate server`로 Server에 새 digest를 추가한다.
+3. `delivery/install-auth-secret --rotate edge`로 해당 Edge의 원문 token을 교체한다.
+4. HTTPS 또는 WSS 요청의 성공을 확인한다.
+5. `delivery/retire-auth-secret`에 이전 bundle을 전달하여 Server에서 이전 digest를 폐기한다.
+
+일반 Release 적용과 같은 Release 재적용은 기존 token 파일을 유지한다. 대상의 token 파일 또는
+digest registry가 없거나 local 검증에 실패하면 일반 배포는 새 값을 임의로 생성하지 않고
+credential Bootstrap 또는 rotation 복구를 요구한다. Credential bundle은 설치와 검증에만
+사용하며 Git, Release asset과 일반 배포 경로에 보관하지 않는다.
+
+인증 경계는 4개다.
+
+| 호출 경계 | 인증과 보호 |
+| --- | --- |
+| Edge Platform에서 Backend | TLS와 Edge별 Bearer token |
+| Camera Edge에서 Camera Media Service | TLS와 Camera별 Bearer token |
+| Browser에서 Server | TLS, Backend가 소유하는 사용자 session과 Cross-Site Request Forgery (CSRF) 보호 |
+| 같은 장비의 내부 service | Unix Domain Socket (UDS) 권한 또는 외부에 공개하지 않은 Compose network |
+
+Server reverse proxy는 Browser 요청에 고정 Bearer token을 추가하지 않는다. 같은 장비의 내부
+service는 외부 수신 port를 열지 않고 공유 Bearer token을 사용하지 않는다. Camera Media
+Service가 Backend를 직접 호출하는 기능을 제공하면 해당 호출 전용 service credential과
+최소 권한을 별도 계약으로 추가한다.
+
+Server TLS 개인키는 `/srv/scrap-monitoring/pki/tls/server.key`에서 별도로 관리한다.
 
 비밀 파일 경로는 환경설정에 기록할 수 있지만 비밀값은 Git, Release, command line과 log에 포함하지
-않는다. Component가 file 기반 secret 입력을 지원하지 않으면 해당 제한을 해소하기 전까지 통합
-배포 완료 상태로 간주하지 않는다.
+않는다. Token은 Online Package, Offline Bundle 또는 Release checksum 대상에 포함하지 않는다.
+Component가 file 기반 secret 입력을 지원하지 않으면 해당 제한을 해소하기 전까지 통합 배포 완료
+상태로 간주하지 않는다.
 
 ## PKI와 Root CA
 
@@ -136,7 +180,8 @@ Server의 인증서와 개인키 위치, 권한과 갱신 절차는 pki-operatio
 | MEDIA_WSS_URL | Edge 장비 환경설정 | Media WSS 수신 경로 |
 | DEPLOYMENT_REVISION | Release 설정 | 통합 Release에서 생성 |
 | 이름이 IMAGE로 끝나는 변수 | Release 설정 | Manifest의 digest 고정 image |
-| Edge 및 Camera token | 비밀정보 | 대상 장비의 token 파일 |
+| Backend Bearer token | 비밀정보 | Edge별 원문 Client 파일과 Server digest registry |
+| Camera Media Bearer token | 비밀정보 | Camera별 원문 Client 파일과 Server digest registry |
 | Root CA | PKI 상태 | Edge에 사전 설치한 인증서 |
 
 ## 현재 구현 상태
@@ -145,5 +190,10 @@ Server의 인증서와 개인키 위치, 권한과 갱신 절차는 pki-operatio
 delivery/validate-environment는 실제 값을 출력하지 않고 schema version, 누락 변수와 알 수 없는
 변수를 검사한다.
 
-Manifest 기반 release.env 생성, Component 설정 hash 생성, 원자적 적용과 rollback은
-delivery/apply-release 구현 범위이며 아직 구현되지 않았다.
+`delivery/generate-auth-secret`, `delivery/install-auth-secret`, `delivery/retire-auth-secret`과
+`delivery/validate-auth-secrets`가 token 생성, 설치, rotation과 배포 전 검증을 구현한다. 대상별
+systemd unit은 Compose 시작 전에 인증 파일을 검증한다. Component의 digest registry 입력과
+Compose service별 secret 연결은 Component 실행 계약이 확정되지 않아 구현되지 않았다.
+
+Manifest 기반 release.env 생성, Component 설정 hash 생성, 원자적 적용과 rollback은 아직
+구현되지 않았다.

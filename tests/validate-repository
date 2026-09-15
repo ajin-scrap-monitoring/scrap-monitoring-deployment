@@ -14,6 +14,10 @@ docker compose -f targets/edge/compose.yaml config --quiet
 docker compose -f targets/server/compose.yaml config --quiet
 shellcheck \
   delivery/apply-release \
+  delivery/generate-auth-secret \
+  delivery/install-auth-secret \
+  delivery/retire-auth-secret \
+  delivery/validate-auth-secrets \
   delivery/validate-environment \
   delivery/verify-release \
   delivery/online/fetch-release \

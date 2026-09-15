@@ -18,6 +18,10 @@ SHELL_ENTRYPOINTS = [
     REPOSITORY / "pki" / "verify-server-certificate",
 ]
 IMPLEMENTED_ENTRYPOINTS = [
+    REPOSITORY / "delivery" / "generate-auth-secret",
+    REPOSITORY / "delivery" / "install-auth-secret",
+    REPOSITORY / "delivery" / "retire-auth-secret",
+    REPOSITORY / "delivery" / "validate-auth-secrets",
     REPOSITORY / "delivery" / "validate-environment",
     REPOSITORY / "release" / "pull-images",
 ]
