@@ -7,7 +7,10 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-EnvironmentFile=-/etc/scrap-monitoring/edge.env
+EnvironmentFile=/etc/scrap-monitoring/edge.env
+EnvironmentFile=/srv/scrap-monitoring/deployment/current/targets/edge/release.env
+EnvironmentFile=/srv/scrap-monitoring/deployment/state/edge.generated.env
+ExecStartPre=/usr/bin/env /srv/scrap-monitoring/deployment/current/delivery/validate-environment edge /etc/scrap-monitoring/edge.env
 ExecStart=/usr/bin/env docker compose --project-directory /srv/scrap-monitoring/deployment/current/targets/edge up --detach --remove-orphans
 ExecStop=/usr/bin/env docker compose --project-directory /srv/scrap-monitoring/deployment/current/targets/edge down
 TimeoutStartSec=0

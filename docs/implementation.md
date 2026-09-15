@@ -9,6 +9,12 @@ checksum과 Public 범위를 검사한다. Release workflow는 보호된 version
 manifest와 대상별 component를 검증하고 Public GHCR image 취득, asset 생성, Draft Release asset
 집합 확인과 게시를 수행한다.
 
+환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
+대상별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
+`delivery/validate-environment`는 실제 값을 출력하지 않고 schema version, 변수 집합과 빈 값을
+검사한다. systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated
+environment 파일을 Compose 실행 환경으로 사용한다.
+
 Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline Bundle 2개와
 checksum manifest 1개를 생성하는 경계가 검증되어 있다. 실제 version manifest와 component
 image가 없으므로 GHCR image 취득과 GitHub Release 게시는 아직 실행되지 않았다.
@@ -21,6 +27,20 @@ Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, 
 Docker Compose plugin과 containerd가 설치되어 있고 Docker daemon의 부팅 자동 시작과 로그
 제한이 구성되어 있다.
 
+## Component 연동 상태
+
+| Component | 확인된 계약 | 미완료 사항 |
+| --- | --- | --- |
+| Edge Platform | LiDAR 2개, UDS 처리, 측정 및 heartbeat HTTPS, Camera WSS와 file token | 명시적 Root CA file 입력, Release image digest와 실제 Compose |
+| Backend | `/api/v1/metrics/ingest`, `X-Edge-API-Key`, Backend metric schema | Bearer 인증, Edge measurement schema, 멱등 ACK와 heartbeat API |
+| Camera Media Service | Camera별 Bearer 인증, binary JPEG WebSocket ingest와 최신 frame 1개 | file secret, 녹화, Browser 전달, health와 운영 검증 |
+| Dashboard Nginx | TLS 종단, 정적 파일과 일반 `/api/` reverse proxy | Media WebSocket 전용 route와 독립 배포 Compose |
+
+Backend의 현재 인증, 요청 본문과 response는 Edge Platform 전송 계약과 일치하지 않는다.
+Heartbeat endpoint는 Backend에 존재하지 않는다. Camera Media Service는
+`WEB_APPLICATION_URL`, `WEB_APPLICATION_CREDENTIAL`, storage와 통계 설정을 파싱하지만 해당
+기능을 실행하지 않는다.
+
 ## 채택한 구조
 
 | 항목 | 현재 결정 |
@@ -32,6 +52,9 @@ Docker Compose plugin과 containerd가 설치되어 있고 Docker daemon의 부�
 | host 수명 주기 | Docker Compose를 시작하고 필수 mount를 확인하는 systemd 경계 |
 | host 배포 root | `/srv/scrap-monitoring/deployment` |
 | target 환경 파일 | `/etc/scrap-monitoring/edge.env`, `/etc/scrap-monitoring/server.env` |
+| Release 환경 파일 | Manifest에서 생성한 대상별 `release.env` |
+| Edge 파생 설정 | Component 설정에서 생성한 `CONFIG_SHA256` |
+| 환경설정 검증 | 공개 schema와 실제 파일의 version, 변수 집합과 빈 값 비교 |
 | 버전 해석 | 통합 Release manifest가 고정한 대상별 component image 집합 |
 | Release manifest 형식 | JSON 문서와 JSON Schema |
 | Container registry | GitHub Container Registry (GHCR) |
@@ -68,8 +91,10 @@ scrap-monitoring-deployment/
 |   |-- online/
 |   |   `-- fetch-release
 |   |-- apply-release
+|   |-- validate-environment
 |   `-- verify-release
 |-- docs/
+|   |-- configuration-management.md
 |   |-- deployment-contract.md
 |   |-- implementation.md
 |   |-- pki-operations.md
@@ -111,6 +136,7 @@ scrap-monitoring-deployment/
 |   |-- pki/
 |   |-- release/
 |   |-- systemd/
+|   |-- test_configuration.py
 |   |-- test_entrypoints.py
 |   |-- test_public_content.py
 |   |-- test_release.py
@@ -195,5 +221,7 @@ PKI Bootstrap은 `step` CLI 0.30.6을 사용하고 CA 실행 환경은 `step-ca`
 
 ## 미확정 구현 결정
 
-- Component image 이름과 Repository별 실행 계약
+- 실제 Release manifest에 포함할 Component image digest
+- Backend의 Edge measurement 저장 변환과 heartbeat 상태 model
+- Camera Media Service의 file 기반 secret 계약과 Browser 전달 방식
 - Database migration, backup 선행 조건과 rollback 허용 범위

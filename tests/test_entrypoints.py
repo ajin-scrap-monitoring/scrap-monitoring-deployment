@@ -18,6 +18,7 @@ SHELL_ENTRYPOINTS = [
     REPOSITORY / "pki" / "verify-server-certificate",
 ]
 IMPLEMENTED_ENTRYPOINTS = [
+    REPOSITORY / "delivery" / "validate-environment",
     REPOSITORY / "release" / "pull-images",
 ]
 PYTHON_ENTRYPOINTS = [
