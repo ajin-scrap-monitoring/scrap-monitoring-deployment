@@ -1,1 +1,26 @@
-{}
+{
+  "address": ":9000",
+  "dnsNames": [
+    "step-ca",
+    "127.0.0.1"
+  ],
+  "root": "/srv/scrap-monitoring/pki/step-ca/certs/root_ca.crt",
+  "crt": "/srv/scrap-monitoring/pki/step-ca/certs/intermediate_ca.crt",
+  "key": "/srv/scrap-monitoring/pki/step-ca/secrets/intermediate_ca_key",
+  "db": {
+    "type": "badgerv2",
+    "dataSource": "/srv/scrap-monitoring/pki/step-ca/db"
+  },
+  "authority": {
+    "claims": {
+      "defaultTLSCertDuration": "8760h",
+      "maxTLSCertDuration": "8760h"
+    },
+    "provisioners": [
+      {
+        "type": "JWK",
+        "name": "deployment"
+      }
+    ]
+  }
+}

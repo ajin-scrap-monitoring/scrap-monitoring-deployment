@@ -20,9 +20,9 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
 
-`delivery/apply-release`와 PKI 실행 파일 3개는 명령 계약만 유지하는 stub이다. Stub은
-`--help`만 성공하고 실제 실행은 미구현 오류로 종료하므로 현재 Repository만으로
-end-to-end 배포를 수행할 수 없다.
+`delivery/apply-release`는 명령 계약만 유지하는 stub이다. Stub은 `--help`만 성공하고 실제
+실행은 미구현 오류로 종료하므로 현재 Repository만으로 end-to-end 배포를 수행할 수
+없다.
 
 `delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
 version, target, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
@@ -32,6 +32,12 @@ GitHub Repository에서 명시한 version의 Online Package와 checksum만 HTTPS
 `delivery/offline/import-bundle`은 Offline Bundle에 공통 asset 검증을 적용한 후 대상별
 image archive를 Docker에 stream으로 load한다. Manifest가 참조한 각 image digest의 local
 존재와 `linux/arm64` 또는 `linux/amd64` platform을 다시 확인한다.
+
+PKI 도구는 기존 CA의 DER 형식 SHA-256 fingerprint, Root와 Intermediate chain,
+Intermediate 인증서와 암호화 key 일치, 파일 권한과 `step-ca` 설정을 검증한다. Server
+인증서는 DNS SAN 1개, EC P-256 key, TLS Server 용도, chain과 남은 유효기간을 검증한다.
+`ensure-server-certificate`와 일일 timer는 최초 1년 인증서 발급과 만료 122일 전 갱신, fullchain의
+원자적 파일 전환, Server service reload와 실패 시 이전 인증서 복구를 수행한다.
 
 Release manifest는 Component 출처, full commit, Component version, image digest, Package 공개
 범위, Private 예외 사유, pull 인증 방식과 외부 고지 경로를 검증한다. Release asset
@@ -112,7 +118,7 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | 영속 데이터 | container image와 분리한 host storage |
 | Private PKI | 오프라인 Root CA와 Monitoring Server의 `step-ca` Intermediate CA를 사용하는 2단계 구조 |
 | PKI 실행 경계 | 수동 Bootstrap 및 Client trust 등록과 일반 배포가 자동화하는 Server 인증서 발급 및 갱신 |
-| CA 내부 연결 | Compose network의 `https://step-ca:9000` |
+| CA 내부 연결 | Container는 `https://step-ca:9000`, host 자동화는 loopback 전용 `https://127.0.0.1:9000` |
 | Server 인증서 발급 | `deployment` JWK Provisioner와 환경별 Server FQDN 1개 |
 
 ## 디렉토리 구조
@@ -191,6 +197,7 @@ scrap-monitoring-deployment/
 |   |-- test_configuration.py
 |   |-- test_delivery_release.py
 |   |-- test_entrypoints.py
+|   |-- test_pki.py
 |   |-- test_public_content.py
 |   |-- test_release.py
 |   |-- test_repository.py
@@ -255,6 +262,7 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | --- | --- | --- | --- | --- |
 | Bash | `5.1` 이상 | Host 배포와 인증 정보 도구 실행 | [GNU Bash](https://www.gnu.org/software/bash/) | GPL-3.0-or-later |
 | GNU Coreutils | `8.32` 이상 | CSPRNG byte 변환, file 설치, digest와 권한 처리 | [GNU Coreutils](https://www.gnu.org/software/coreutils/) | GPL-3.0-or-later |
+| OpenSSL | `3.0.2` 이상 | CA fingerprint, 인증서 chain, SAN, key와 유효기간 검증 | [OpenSSL](https://www.openssl.org/) | Apache-2.0 |
 | Python | `3.10` 이상 | 대상 host의 Release Package 구조와 Manifest 검증 | [Python](https://www.python.org/) | PSF-2.0 |
 | `curl` | `7.81.0` 이상 | GitHub Release에서 Online Package와 checksum을 HTTPS로 취득 | [curl](https://curl.se/) | curl license |
 | `jq` | `1.6` 이상 | Credential metadata와 digest registry 검증 및 갱신 | [jqlang](https://jqlang.org/) | MIT |

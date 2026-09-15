@@ -80,7 +80,7 @@ Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release �
 | Network | Server Fully Qualified Domain Name (FQDN), 허용 port와 outbound 접근 |
 | Secret 저장소 | 배포 도구가 생성한 애플리케이션 token을 설치할 host 경로와 접근 권한 |
 | Online 인증 | Public image는 불필요하며 Private Package 예외에만 최소 범위의 GHCR 자격 증명 |
-| PKI 상태 | Server의 기존 CA 상태와 Edge의 Root CA trust |
+| PKI 상태 | Server의 기존 CA 상태, 별도 확인한 Root CA fingerprint와 Edge의 Root CA trust |
 | Offline 반입 | 대상별 Bundle과 checksum manifest를 읽을 수 있는 경로 |
 
 대상 architecture가 manifest와 다르거나 필수 host 자원이 없으면 적용을 시작하지 않는다.
@@ -271,9 +271,9 @@ digest를 서로 비교한다.
 
 | 실행 파일 | 입력 | 성공 조건 |
 | --- | --- | --- |
-| `pki/validate-ca-state` | Server의 기존 CA 경로와 예상 fingerprint | Root 및 Intermediate 인증서 chain, key와 CA database 일관성 확인 |
-| `pki/ensure-server-certificate` | Server FQDN, 기존 CA 상태와 TLS 경로 | 필요한 Server key와 1년 인증서의 발급 또는 갱신 |
-| `pki/verify-server-certificate` | Server FQDN, 인증서 chain과 key | DNS 이름, key 일치, chain과 유효기간 확인 |
+| `pki/validate-ca-state` | `--root-directory`, `--step-ca-directory`, 선택적 `--expected-root-sha256` | Root 및 Intermediate 인증서 chain, key, 권한, CA 설정과 database 일관성 확인 |
+| `pki/ensure-server-certificate` | `--fqdn`, `--expected-root-sha256`, CA와 TLS 경로, CA URL, Provisioner, TLS group, 갱신 임계와 lock | 필요한 Server key, 1년 인증서와 fullchain의 발급 또는 갱신 |
+| `pki/verify-server-certificate` | `--fqdn`, Root, Intermediate, Server 인증서와 key, 최소 유효기간 | DNS SAN 1개, EC P-256 key 일치, chain, TLS Server 용도와 유효기간 확인 |
 
 PKI 실행 파일은 Root CA와 Intermediate CA를 새로 Bootstrap하지 않는다. 인증서 전환 전 새 파일을
 검증하고, 전환 후 HTTPS와 WSS 확인이 실패하면 기존 Server 인증서로 복구한다.
