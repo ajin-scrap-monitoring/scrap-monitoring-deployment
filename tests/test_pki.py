@@ -26,14 +26,6 @@ def run_openssl(*arguments: str) -> None:
     )
 
 
-def write_public_fixture(path: Path, public_content: str, mode: int) -> None:
-    path.write_text(
-        public_content,  # lgtm[py/clear-text-storage-sensitive-data]
-        encoding="utf-8",
-    )
-    path.chmod(mode)
-
-
 def write_random_secret(path: Path) -> None:
     with path.open("xb") as output:
         subprocess.run(
@@ -91,14 +83,14 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
     intermediate_request = bootstrap / "intermediate.csr"
     intermediate_certificate = certs / "intermediate_ca.crt"
     intermediate_extensions = bootstrap / "intermediate.ext"
-    write_public_fixture(
-        intermediate_extensions,
+    intermediate_extensions.write_text(
         "basicConstraints=critical,CA:TRUE,pathlen:0\n"
         "keyUsage=critical,keyCertSign,cRLSign\n"
         "subjectKeyIdentifier=hash\n"
         "authorityKeyIdentifier=keyid,issuer\n",
-        0o600,
+        encoding="utf-8",
     )
+    intermediate_extensions.chmod(0o600)
     run_openssl(
         "ecparam",
         "-name",
@@ -160,7 +152,9 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
         ["openssl", "x509", "-in", str(root_certificate), "-outform", "DER"]
     )
     fingerprint = hashlib.sha256(der).hexdigest()
-    write_public_fixture(root_directory / "root_ca.sha256", f"{fingerprint}\n", 0o640)
+    fingerprint_file = root_directory / "root_ca.sha256"
+    fingerprint_file.write_text(f"{fingerprint}\n", encoding="utf-8")
+    fingerprint_file.chmod(0o640)
     ca_config = {
         "address": ":9000",
         "dnsNames": ["step-ca", "127.0.0.1"],
@@ -176,8 +170,12 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
             "provisioners": [{"type": "JWK", "name": "deployment"}],
         },
     }
-    write_public_fixture(config / "ca.json", f"{json.dumps(ca_config)}\n", 0o640)
-    write_public_fixture(database / "state", "initialized\n", 0o600)
+    ca_config_file = config / "ca.json"
+    ca_config_file.write_text(f"{json.dumps(ca_config)}\n", encoding="utf-8")
+    ca_config_file.chmod(0o640)
+    database_state = database / "state"
+    database_state.write_text("initialized\n", encoding="utf-8")
+    database_state.chmod(0o600)
 
     root_directory.chmod(0o750)
     step_ca_directory.chmod(0o700)
@@ -194,7 +192,7 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
         "root_directory": root_directory,
         "step_ca_directory": step_ca_directory,
         "root_certificate": root_certificate,
-        "fingerprint_file": root_directory / "root_ca.sha256",
+        "fingerprint_file": fingerprint_file,
         "root_key": root_key,
         "intermediate_certificate": intermediate_certificate,
         "intermediate_key": intermediate_plain_key,
@@ -216,14 +214,14 @@ def create_server_certificate(
         )
     request = temporary_path / f"server-{days}.csr"
     extensions = temporary_path / f"server-{days}.ext"
-    write_public_fixture(
-        extensions,
+    extensions.write_text(
         "basicConstraints=critical,CA:FALSE\n"
         "keyUsage=critical,digitalSignature\n"
         "extendedKeyUsage=serverAuth\n"
         f"subjectAltName=DNS:{name}\n",
-        0o600,
+        encoding="utf-8",
     )
+    extensions.chmod(0o600)
     run_openssl(
         "req",
         "-new",
