@@ -27,8 +27,8 @@ def run_openssl(*arguments: str) -> None:
 
 
 def write_public_fixture(path: Path, public_content: str, mode: int) -> None:
-    path.write_text(  # lgtm[py/clear-text-storage-sensitive-data]
-        public_content,
+    path.write_text(
+        public_content,  # lgtm[py/clear-text-storage-sensitive-data]
         encoding="utf-8",
     )
     path.chmod(mode)
