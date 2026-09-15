@@ -171,7 +171,14 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
         },
     }
     ca_config_file = config / "ca.json"
-    ca_config_file.write_text(f"{json.dumps(ca_config)}\n", encoding="utf-8")
+    with ca_config_file.open("xb") as output:
+        subprocess.run(
+            ["jq", "--compact-output", "."],
+            input=json.dumps(ca_config),
+            check=True,
+            stdout=output,
+            text=True,
+        )
     ca_config_file.chmod(0o640)
     database_state = database / "state"
     database_state.write_text("initialized\n", encoding="utf-8")
