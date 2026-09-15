@@ -355,11 +355,41 @@ schema version, 누락 변수, 알 수 없는 변수와 빈 값을 검사하고 
 동작을 구현한 실행 파일은 성공 경로, 입력 오류, checksum 오류, architecture 불일치와 외부
 의존성 실패를 테스트한다.
 
+CI 통합 fixture는 Release asset 생성부터 Online 취득 및 적용까지의 연결과 Offline image import
+및 적용까지의 연결을 검증한다. Docker와 systemd는 결정적인 대역 명령을 사용하고 archive,
+checksum, 환경 및 secret 검증, OpenSSL 인증서 chain과 실제 file 및 symlink 전환은 실제
+구현을 실행한다. Image load 실패, image platform 불일치, secret 누락, Edge 설정 불일치,
+무서비스 Compose, service 시작 및 실행 상태 실패, 변조된 Version, 인증서 검증 실패와 rollback을
+장애 경로로 검증한다.
+
 Release workflow는 `vMAJOR.MINOR.PATCH` tag Push에서 실행한다. CI와 같은 정적 검증 및 테스트를
 다시 수행하고 Release 생성 순서를 완료한 뒤에만 Release를 게시한다.
 
-Docker와 Docker Compose 실행 검증은 별도 Ubuntu test host에서 수행한다. 실제 Edge와 Monitoring
-Server는 Release 적용과 운영 상태 확인에만 사용한다.
+실제 Docker daemon, Docker Compose health check와 systemd 재시작 검증은 별도 Ubuntu test
+host에서 수행한다. 실제 Edge와 Monitoring Server는 Release 적용과 운영 상태 확인에만 사용한다.
+
+### Ubuntu test host 검증
+
+`tests/validate-test-host`의 선행 조건은 5개다.
+
+- 운영 장비와 분리한 대상 architecture의 Ubuntu host
+- Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과 containerd `2.3.5`
+- 설치하고 load한 대상별 systemd unit
+- 대상별 환경설정, secret, host storage, 장치와 Server PKI 상태
+- 검증할 Release Package, checksum manifest와 Offline mode의 사전 image import
+
+다음 명령은 실제 Package를 적용하고 current link, 적용 상태, systemd active 상태와 모든 Compose
+service의 running 상태를 확인한다.
+
+```bash
+sudo tests/validate-test-host \
+  --version v1.2.3 \
+  --target edge \
+  --package /var/tmp/scrap-monitoring-edge-v1.2.3-online.tar.gz \
+  --checksums /var/tmp/SHA256SUMS \
+  --mode online \
+  --environment-file /etc/scrap-monitoring/edge.env
+```
 
 ## 미확정 입력 처리
 

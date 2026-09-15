@@ -26,6 +26,7 @@ shellcheck \
   pki/ensure-server-certificate \
   pki/verify-server-certificate \
   release/pull-images \
+  tests/validate-test-host \
   tests/validate-repository
 systemd-analyze verify \
   tests/systemd/fixtures/docker.service \
