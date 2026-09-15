@@ -22,7 +22,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "docs/configuration-management.md",
             "delivery/online/fetch-release",
             "delivery/release_verifier.py",
-            "delivery/offline/build-bundle",
+            "delivery/offline/bundle_importer.py",
             "delivery/offline/import-bundle",
             "docs/deployment-contract.md",
             "pki/config/ca.template.json",

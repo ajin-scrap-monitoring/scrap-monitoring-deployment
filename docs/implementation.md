@@ -20,15 +20,18 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
 
-`delivery/offline/import-bundle`, `delivery/apply-release`와 PKI 실행 파일 3개는 명령 계약만
-유지하는 stub이다. Stub은 `--help`만 성공하고 실제 실행은 미구현 오류로 종료하므로
-현재 Repository만으로 end-to-end 배포를 수행할 수 없다. `delivery/offline/build-bundle`은
-`release/build-assets`와 책임이 중복된 stub이며 배포 실행 계약에 포함하지 않는다.
+`delivery/apply-release`와 PKI 실행 파일 3개는 명령 계약만 유지하는 stub이다. Stub은
+`--help`만 성공하고 실제 실행은 미구현 오류로 종료하므로 현재 Repository만으로
+end-to-end 배포를 수행할 수 없다.
 
 `delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
 version, target, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
 GitHub Repository에서 명시한 version의 Online Package와 checksum만 HTTPS로 취득하고
 검증이 완료된 디렉토리를 원자적으로 공개한다.
+
+`delivery/offline/import-bundle`은 Offline Bundle에 공통 asset 검증을 적용한 후 대상별
+image archive를 Docker에 stream으로 load한다. Manifest가 참조한 각 image digest의 local
+존재와 `linux/arm64` 또는 `linux/amd64` platform을 다시 확인한다.
 
 Release manifest는 Component 출처, full commit, Component version, image digest, Package 공개
 범위, Private 예외 사유, pull 인증 방식과 외부 고지 경로를 검증한다. Release asset
@@ -126,7 +129,7 @@ scrap-monitoring-deployment/
 |-- .yamllint.yml
 |-- delivery/
 |   |-- offline/
-|   |   |-- build-bundle
+|   |   |-- bundle_importer.py
 |   |   `-- import-bundle
 |   |-- online/
 |   |   `-- fetch-release

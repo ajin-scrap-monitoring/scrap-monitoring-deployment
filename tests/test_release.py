@@ -399,6 +399,7 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(edge_offline, "r:gz") as archive:
             self.assertIn("images/edge-images.tar", archive.getnames())
+            self.assertIn("delivery/offline/bundle_importer.py", archive.getnames())
             self.assertIn("delivery/offline/import-bundle", archive.getnames())
             self.assertNotIn("delivery/online/fetch-release", archive.getnames())
             package = json.load(archive.extractfile("release-package.json"))

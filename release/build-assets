@@ -37,6 +37,7 @@ MODE_PAYLOAD_FILES = {
     ),
     "offline": (
         "delivery/offline/README.md",
+        "delivery/offline/bundle_importer.py",
         "delivery/offline/import-bundle",
     ),
 }
