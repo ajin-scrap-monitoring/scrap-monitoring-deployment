@@ -26,10 +26,15 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 수 없다. `delivery/offline/build-bundle`은 `release/build-assets`와 책임이 중복된 stub이며 배포
 실행 계약에 포함하지 않는다.
 
-Release asset 생성기는 가상 image archive를 사용하여 Online Package 2개, Offline Bundle 2개와
-checksum manifest 1개를 생성하는 경계가 검증되어 있다. Edge Platform `v0.1.1`의 ARM64 image
-5개와 Dashboard `v0.1.2`의 AMD64 image 1개가 GHCR에 존재한다. Backend와 Camera Media Service는
-배포 Release image를 제공하지 않으므로 실제 통합 version manifest와 Release는 없다.
+Release manifest는 Component 출처, full commit, Component version, image digest, Package 공개
+범위, Private 예외 사유, pull 인증 방식과 외부 고지 경로를 검증한다. Release asset
+생성기는 명시적 allowlist와 정규화된 archive metadata를 사용하여 재현 가능한 Online
+Package 2개, Offline Bundle 2개와 checksum manifest 1개를 생성한다. 각 Package에는
+target, mode, platform과 Manifest digest를 고정한 descriptor가 있다.
+
+Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
+GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지
+않으므로 실제 통합 version manifest와 Release는 없다.
 
 Monitoring Server에는 Root CA 인증서, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
 인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
@@ -80,6 +85,8 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | 환경설정 검증 | 공개 schema와 실제 파일의 version, 변수 집합과 빈 값 비교 |
 | 버전 해석 | 통합 Release manifest가 고정한 대상별 component image 집합 |
 | Release manifest 형식 | JSON 문서와 JSON Schema |
+| Release Package descriptor | Version, target, mode, platform, Manifest digest와 Offline image archive 경로 |
+| Release Package payload | 명시적 allowlist, symbolic link 거부와 재현 가능한 archive metadata |
 | Container registry | GitHub Container Registry (GHCR) |
 | Component image 식별 | `ghcr.io` image의 SHA-256 digest |
 | Component image 공개 범위 | Public GHCR Package 기본, 정본에 예외를 기록한 경우에만 Private |
@@ -132,6 +139,8 @@ scrap-monitoring-deployment/
 |   |-- implementation.md
 |   |-- pki-operations.md
 |   `-- project-spec.md
+|-- notices/
+|   `-- README.md
 |-- pki/
 |   |-- config/
 |   |   `-- ca.template.json
@@ -147,6 +156,7 @@ scrap-monitoring-deployment/
 |   |-- build-assets
 |   |-- manifest.example.json
 |   |-- manifest.schema.json
+|   |-- package.schema.json
 |   |-- pull-images
 |   |-- release_manifest.py
 |   `-- validate-manifest
