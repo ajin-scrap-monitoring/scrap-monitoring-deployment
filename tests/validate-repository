@@ -31,4 +31,7 @@ systemd-analyze verify \
   pki/systemd/*.service \
   pki/systemd/*.timer
 .venv/bin/python -m unittest discover --start-directory tests --pattern 'test_*.py'
+empty_tree="$(git hash-object -t tree /dev/null)"
+git diff --check "${empty_tree}" HEAD
 git diff --check
+git diff --cached --check
