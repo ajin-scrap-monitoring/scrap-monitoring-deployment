@@ -26,7 +26,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def payload_files(repository: Path, target: str) -> Iterable[tuple[Path, Path]]:
-    roots = [repository / "targets" / target, repository / "delivery"]
+    roots = [
+        repository / "targets" / target,
+        repository / "delivery",
+        repository / "docs",
+    ]
     if target == "server":
         roots.append(repository / "pki")
 

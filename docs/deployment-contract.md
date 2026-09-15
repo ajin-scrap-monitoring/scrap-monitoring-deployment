@@ -83,6 +83,8 @@ Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release �
 
 대상 architecture가 manifest와 다르거나 필수 host 자원이 없으면 적용을 시작하지 않는다.
 실제 주소, 자격 증명, 인증서 개인키와 현장별 값은 Repository와 Release asset에 포함하지 않는다.
+Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태의 정본 및 동기화 방식은
+[`configuration-management.md`](configuration-management.md)를 따른다.
 
 ## Repository 영역
 
@@ -165,6 +167,7 @@ Release 생성은 다음 순서를 제공한다.
 | `delivery/offline/build-bundle` | Manifest와 대상 image archive | 대상별 Offline Bundle과 checksum 생성 |
 | `delivery/offline/import-bundle` | 대상별 Bundle과 checksum | 검증된 대상 image의 local import |
 | `delivery/verify-release` | Package 또는 Bundle과 checksum | checksum, Manifest, 대상과 architecture 검증 |
+| `delivery/validate-environment` | 대상과 실제 환경 파일 | Schema version, 변수 집합과 빈 값 검증 |
 | `delivery/apply-release` | 검증된 대상 package | Version staging, 목표 상태 전환과 상태 확인 |
 
 모든 실행 파일은 입력 오류, 검증 실패와 미구현 동작에 성공 code를 반환하지 않는다. 실패 메시지는
@@ -189,12 +192,49 @@ Edge 목표 상태는 `linux/arm64` component만 사용한다. Compose는 확인
 Agent의 image, 설정, 장치, Root CA mount, Server WSS endpoint와 health check를 정의한다. systemd는
 Edge 환경 파일과 `current/targets/edge/compose.yaml`을 사용하여 Compose project를 관리한다.
 
+Edge는 실제 LiDAR 2개의 site network 주소와 TCP 8089를 각 LiDAR driver에 제공한다. 처리
+설정은 host의 `/opt/ajin/config/edge.json`, token은 `/opt/ajin/secrets`, runtime 상태는
+`/opt/ajin/runtime`에서 관리한다. 기존 Root CA는
+`/usr/local/share/ca-certificates/scrap-monitoring-root-ca.crt`에서 읽고 필요한 Container에
+read-only로 연결한다.
+
+Server 연결 경로는 다음 형식을 사용한다.
+
+| 용도 | 경로 |
+| --- | --- |
+| 측정 전송 | `https://<server-fqdn>/api/v1/metrics/ingest` |
+| Heartbeat | `https://<server-fqdn>/api/v1/edge/heartbeat` |
+| Camera frame | `wss://<server-fqdn>/api/v1/cameras/<camera-id>/stream` |
+
 ### Server
 
 Server 목표 상태는 `linux/amd64` component만 사용한다. Compose는 확인된 backend, 영속 데이터
 저장소, Camera Media Service, Dashboard, TLS 종단, service routing과 `step-ca` 계약을 정의한다.
 systemd는 Server 환경 파일과 `current/targets/server/compose.yaml`을 사용하여 Compose project를
 관리한다.
+
+TLS 종단은 HTTPS 443에서 Server 인증서 chain을 제공한다. 일반 `/api/` 요청은 Backend로
+전달하고 Camera ingest 경로는 일반 API 규칙보다 먼저 Camera Media Service로 전달한다.
+`Authorization`, `Idempotency-Key`, `Host`, Client 주소와 request ID를 upstream에 유지한다.
+Backend와 Camera Media Service의 내부 port는 host 외부에 공개하지 않는다.
+
+### Component 연동
+
+Backend의 측정 수신은 Edge measurement contract v1.0을 원본 입력으로 처리한다. 같은 Bearer
+token 인증을 측정과 heartbeat에 적용하고 `measurement_id`의 고유성을 저장 transaction에서
+보장한다. 최초 저장은 동일한 `measurement_id`와 `accepted=true`, 동일 측정의 재전송은
+`accepted=true` 또는 `duplicate=true`로 확인한다.
+
+Backend는 `GOOD`, `DEGRADED`, `INVALID` 측정을 모두 수신한다. Edge 계약과 Backend domain
+model 사이의 site, Edge, 적재함, 단위와 품질 상태 변환은 Backend가 소유한다. 배포 Repository는
+해당 변환을 Compose 또는 reverse proxy에서 구현하지 않는다.
+
+Heartbeat endpoint는 Edge heartbeat contract v1.0을 검증하고 Edge별 최신 snapshot과 마지막 정상
+수신 시각을 갱신한다. 정상 처리는 response body 없이 2xx를 반환할 수 있다.
+
+Camera Media Service는 path의 Camera ID와 `Authorization: Bearer <camera-token>`을 검증하고 binary
+JPEG frame을 수신한다. TLS는 Server reverse proxy에서 종료하고 Media Service는 private Compose
+network의 WebSocket listener를 사용한다.
 
 Component 이름, image와 실행 계약이 확인되기 전에는 빈 Compose service를 임의의 예제로 채우지
 않는다. 확인한 계약을 반영할 때 공개 설정은 대상별 `.env.example`과 `config`에 기록하고 실제 값은
@@ -205,8 +245,10 @@ host 환경 파일에 둔다.
 Continuous Integration (CI) job `CI`는 모든 `main` 대상 Pull Request와 `main` Push에서 실행한다.
 Markdown, YAML, JSON,
 JSON Schema, Python, Shell, Docker Compose, systemd, Repository 구조, Public 범위, Release asset과
-checksum을 검사한다. 실제 동작을 구현한 실행 파일은 성공 경로, 입력 오류, checksum 오류,
-architecture 불일치와 외부 의존성 실패를 테스트한다.
+checksum을 검사한다. `delivery/validate-environment`는 대상별 공개 schema와 실제 환경 파일의
+schema version, 누락 변수, 알 수 없는 변수와 빈 값을 검사하고 실제 값을 출력하지 않는다. 실제
+동작을 구현한 실행 파일은 성공 경로, 입력 오류, checksum 오류, architecture 불일치와 외부
+의존성 실패를 테스트한다.
 
 Release workflow는 `vMAJOR.MINOR.PATCH` tag Push에서 실행한다. CI와 같은 정적 검증 및 테스트를
 다시 수행하고 Release 생성 순서를 완료한 뒤에만 Release를 게시한다.
@@ -219,6 +261,9 @@ Server는 Release 적용과 운영 상태 확인에만 사용한다.
 다음 입력이 없으면 관련 실제 구현을 완료된 것으로 기록하지 않는다.
 
 - Component image와 실행 계약이 없으면 대상별 Compose service 구성을 보류한다.
+- 실제 환경 파일의 schema가 대상별 `.env.example`과 일치하지 않으면 적용을 중단한다.
+- Backend가 Edge 측정 ACK와 heartbeat 계약을 제공하지 않으면 Server 연동 완료로 간주하지 않는다.
+- Camera Media Service가 file 기반 secret 입력을 제공하지 않으면 운영 배포 완료로 간주하지 않는다.
 - Database migration과 rollback 계약이 없으면 schema 변경 Release의 자동 rollback을 허용하지 않는다.
 - 실제 CA 상태와 Server FQDN이 없으면 Server 인증서를 발급하거나 TLS 종단을 시작하지 않는다.
 - Release에 필요한 image가 없으면 실제 Offline Bundle과 GitHub Release를 게시하지 않는다.

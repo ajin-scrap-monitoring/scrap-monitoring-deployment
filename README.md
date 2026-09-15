@@ -10,6 +10,7 @@
 | --- | --- |
 | [`docs/project-spec.md`](docs/project-spec.md) | 배포 프로젝트의 목적, 범위와 외부 경계 |
 | [`docs/deployment-contract.md`](docs/deployment-contract.md) | 외부 입력과 배포 영역별 기대 동작 |
+| [`docs/configuration-management.md`](docs/configuration-management.md) | 환경설정의 소유권, 저장 위치와 동기화 |
 | [`docs/implementation.md`](docs/implementation.md) | 채택한 배포 구조와 현재 구현 상태 |
 | [`docs/pki-operations.md`](docs/pki-operations.md) | Private PKI 수동 구성과 일반 배포 자동화 |
 

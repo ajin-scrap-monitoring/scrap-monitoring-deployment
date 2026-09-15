@@ -13,12 +13,14 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 | --- | --- |
 | `docs/project-spec.md` | 배포 제품 명세의 정본 |
 | `docs/deployment-contract.md` | 외부 입력과 배포 동작 계약의 정본 |
+| `docs/configuration-management.md` | 설정값의 소유권, 저장 위치와 동기화 규칙의 정본 |
 | `docs/implementation.md` | 채택한 기술, 구조와 현재 구현 상태의 정본 |
 | `docs/pki-operations.md` | Private PKI 구성과 인증서 운영 절차의 정본 |
 
 현재 작업 요청과 확인된 외부 계약이 가장 우선한다. 제품 목적, 범위와 경계는
 `docs/project-spec.md`, 외부 입력과 구현할 동작은 `docs/deployment-contract.md`, 채택한 구현 결정과
-현재 상태는 `docs/implementation.md`를 따른다.
+현재 상태는 `docs/implementation.md`, 설정값의 분류와 동기화는
+`docs/configuration-management.md`를 따른다.
 인증서 파일의 역할, 최초 Bootstrap, 일반 배포와 갱신 절차는 `docs/pki-operations.md`를 따른다.
 같은 사실은 하나의 정본에만 기록하고 `README.md`는 Repository와 문서의 진입점으로 사용한다.
 
@@ -39,9 +41,10 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 1. `git status`와 관련 파일을 확인하여 기존 변경을 구분한다.
 2. `docs/project-spec.md`에서 배포 대상, 지원 경로와 외부 계약을 확인한다.
 3. `docs/deployment-contract.md`에서 필요한 입력과 구현할 동작을 확인한다.
-4. `docs/implementation.md`에서 채택한 구조, 현재 상태와 미확정 구현 결정을 확인한다.
-5. 인증서 관련 작업은 `docs/pki-operations.md`에서 Bootstrap과 반복 배포의 경계를 확인한다.
-6. 연동할 component Repository의 실제 source와 배포 계약을 확인한다.
+4. `docs/configuration-management.md`에서 설정값의 정본, 저장 위치와 동기화 규칙을 확인한다.
+5. `docs/implementation.md`에서 채택한 구조, 현재 상태와 미확정 구현 결정을 확인한다.
+6. 인증서 관련 작업은 `docs/pki-operations.md`에서 Bootstrap과 반복 배포의 경계를 확인한다.
+7. 연동할 component Repository의 실제 source와 배포 계약을 확인한다.
 
 ## 변경 원칙
 

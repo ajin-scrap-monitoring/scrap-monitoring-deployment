@@ -194,11 +194,15 @@ class ReleaseAssetsTest(unittest.TestCase):
             names = set(archive.getnames())
             self.assertIn("release-manifest.json", names)
             self.assertIn("targets/edge/compose.yaml", names)
+            self.assertIn("docs/configuration-management.md", names)
+            self.assertIn("delivery/validate-environment", names)
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(server_online, "r:gz") as archive:
             names = set(archive.getnames())
             self.assertIn("targets/server/compose.yaml", names)
             self.assertIn("pki/config/ca.template.json", names)
+            self.assertIn("docs/configuration-management.md", names)
+            self.assertIn("delivery/validate-environment", names)
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(edge_offline, "r:gz") as archive:
             self.assertIn("images/edge-images.tar", archive.getnames())

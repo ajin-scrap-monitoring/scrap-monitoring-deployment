@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# == 1 )) && [[ "$1" == "--help" ]]; then
+  printf '%s\n' 'Usage: validate-environment <edge|server> <environment-file>'
+  exit 0
+fi
+
+if (( $# != 2 )); then
+  printf '%s\n' 'Usage: validate-environment <edge|server> <environment-file>' >&2
+  exit 2
+fi
+
+target=$1
+environment_file=$2
+repository=$(cd "$(dirname "$0")/.." && pwd)
+
+case "$target" in
+  edge|server) ;;
+  *)
+    printf '%s\n' 'target must be edge or server' >&2
+    exit 2
+    ;;
+esac
+
+template="$repository/targets/$target/.env.example"
+
+if [[ ! -f "$environment_file" ]]; then
+  printf '%s\n' 'environment file is missing' >&2
+  exit 1
+fi
+
+invalid_lines=$(awk '
+  /^[[:space:]]*$/ { next }
+  /^[[:space:]]*#/ { next }
+  /^[A-Z][A-Z0-9_]*=.*/ { next }
+  { print NR }
+' "$environment_file")
+if [[ -n "$invalid_lines" ]]; then
+  printf 'invalid environment file lines: %s\n' "$(printf '%s' "$invalid_lines" | paste -sd, -)" >&2
+  exit 1
+fi
+
+expected_keys=$(awk -F= '/^[A-Z][A-Z0-9_]*=/{print $1}' "$template" | sort)
+actual_keys=$(awk -F= '/^[A-Z][A-Z0-9_]*=/{print $1}' "$environment_file" | sort)
+
+duplicate_keys=$(printf '%s\n' "$actual_keys" | uniq -d)
+if [[ -n "$duplicate_keys" ]]; then
+  printf 'duplicate environment keys: %s\n' "$(printf '%s' "$duplicate_keys" | paste -sd, -)" >&2
+  exit 1
+fi
+
+missing_keys=$(comm -23 <(printf '%s\n' "$expected_keys") <(printf '%s\n' "$actual_keys"))
+if [[ -n "$missing_keys" ]]; then
+  printf 'missing environment keys: %s\n' "$(printf '%s' "$missing_keys" | paste -sd, -)" >&2
+  exit 1
+fi
+
+unknown_keys=$(comm -13 <(printf '%s\n' "$expected_keys") <(printf '%s\n' "$actual_keys"))
+if [[ -n "$unknown_keys" ]]; then
+  printf 'unknown environment keys: %s\n' "$(printf '%s' "$unknown_keys" | paste -sd, -)" >&2
+  exit 1
+fi
+
+empty_keys=$(awk -F= '
+  /^[A-Z][A-Z0-9_]*=/ {
+    value = substr($0, index($0, "=") + 1)
+    if (length(value) == 0) {
+      print $1
+    }
+  }
+' "$environment_file" | sort)
+if [[ -n "$empty_keys" ]]; then
+  printf 'empty environment keys: %s\n' "$(printf '%s' "$empty_keys" | paste -sd, -)" >&2
+  exit 1
+fi
+
+expected_version=$(awk -F= '$1 == "ENVIRONMENT_SCHEMA_VERSION"{print $2}' "$template")
+actual_version=$(awk -F= '$1 == "ENVIRONMENT_SCHEMA_VERSION"{print $2}' "$environment_file")
+if [[ "$actual_version" != "$expected_version" ]]; then
+  printf '%s\n' 'environment schema version mismatch' >&2
+  exit 1
+fi
+
+printf 'environment schema valid: %s\n' "$target"

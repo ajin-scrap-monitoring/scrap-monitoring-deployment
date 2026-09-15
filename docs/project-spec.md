@@ -120,6 +120,11 @@ Repository와 Release에는 공개 가능한 설정 template만 포함한다. �
 개인키, 실제 사설 주소와 현장별 값은 Git 또는 Release asset에 포함하지 않는다. 실제 설정과
 비밀정보는 각 대상 장비의 Git 외부 경로에서 관리하고 배포 버전을 바꾸어도 유지한다.
 
+Release가 소유하는 image와 배포 revision, 장비가 소유하는 환경설정, Component 설정에서 계산하는
+파생값, 비밀 파일과 PKI 상태를 서로 다른 정본으로 관리한다. Release 적용은 장비 값을 자동으로
+덮어쓰지 않고 schema와 필수값을 검증한다. 정확한 분류, 경로와 동기화 규칙은
+[`docs/configuration-management.md`](configuration-management.md)를 따른다.
+
 ## Private PKI와 TLS 인증서
 
 HTTPS와 WSS는 이 Repository가 관리하는 자체 Public Key Infrastructure (PKI)를 사용한다.
