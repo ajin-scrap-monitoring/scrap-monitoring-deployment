@@ -7,8 +7,8 @@ cd "${repository}"
 npx --yes markdownlint-cli2@0.23.2 "**/*.md"
 .venv/bin/yamllint .github/workflows .yamllint.yml targets
 find release pki/config -type f -name '*.json' -print0 | xargs -0 jq empty
-.venv/bin/ruff check release/build-assets release/validate-manifest release/release_manifest.py tests
-.venv/bin/ruff format --check release/build-assets release/validate-manifest release/release_manifest.py tests
+.venv/bin/ruff check delivery/release_verifier.py release/build-assets release/validate-manifest release/release_manifest.py tests
+.venv/bin/ruff format --check delivery/release_verifier.py release/build-assets release/validate-manifest release/release_manifest.py tests
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
 docker compose -f targets/edge/compose.yaml config --quiet
 docker compose -f targets/server/compose.yaml config --quiet

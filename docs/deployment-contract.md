@@ -190,6 +190,10 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 3. Manifest가 참조한 대상 platform의 image를 GHCR에서 digest로 취득한다.
 4. 공통 검증과 적용 절차에 package와 image를 전달한다.
 
+Online 취득 도구는 `ajin-scrap-monitoring/scrap-monitoring-deployment`의 HTTPS Release
+asset만 사용하며 외부 URL, `latest`와 기존 출력 경로를 입력으로 받지 않는다. Package와
+checksum이 모두 취득되고 검증을 통과한 후에만 출력 디렉토리를 공개한다.
+
 ### Offline Bundle
 
 1. Release workflow가 외부 연결 가능한 환경에서 대상별 image를 digest로 취득한다.
@@ -212,6 +216,11 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 
 배포 갱신은 Git 외부의 환경 설정과 영속 데이터를 덮어쓰거나 삭제하지 않는다. 같은 통합 버전의
 재적용은 같은 목표 상태를 만들고 불필요한 CA, key와 영속 상태를 다시 생성하지 않는다.
+
+Asset 검증은 checksum manifest의 중복과 비정상 항목, Package checksum 불일치, archive의
+절대 경로, 상위 경로, 중복 경로, symbolic link, 비정규화 metadata와 allowlist 외부
+파일을 거부한다. Package descriptor와 Manifest의 version, target, platform과 Manifest
+digest를 서로 비교한다.
 
 배포 상태 경로는 6개다.
 

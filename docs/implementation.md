@@ -20,11 +20,15 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
 
-`delivery/online/fetch-release`, `delivery/offline/import-bundle`, `delivery/verify-release`,
-`delivery/apply-release`와 PKI 실행 파일 3개는 명령 계약만 유지하는 stub이다. Stub은 `--help`만
-성공하고 실제 실행은 미구현 오류로 종료하므로 현재 Repository만으로 end-to-end 배포를 수행할
-수 없다. `delivery/offline/build-bundle`은 `release/build-assets`와 책임이 중복된 stub이며 배포
-실행 계약에 포함하지 않는다.
+`delivery/offline/import-bundle`, `delivery/apply-release`와 PKI 실행 파일 3개는 명령 계약만
+유지하는 stub이다. Stub은 `--help`만 성공하고 실제 실행은 미구현 오류로 종료하므로
+현재 Repository만으로 end-to-end 배포를 수행할 수 없다. `delivery/offline/build-bundle`은
+`release/build-assets`와 책임이 중복된 stub이며 배포 실행 계약에 포함하지 않는다.
+
+`delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
+version, target, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
+GitHub Repository에서 명시한 version의 Online Package와 checksum만 HTTPS로 취득하고
+검증이 완료된 디렉토리를 원자적으로 공개한다.
 
 Release manifest는 Component 출처, full commit, Component version, image digest, Package 공개
 범위, Private 예외 사유, pull 인증 방식과 외부 고지 경로를 검증한다. Release asset
@@ -94,7 +98,7 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | Image tag 정책 | Release version tag와 `sha-<full-git-sha>` source revision tag, `latest` 미사용 |
 | 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
 | Release archive 형식 | `.tar.gz` |
-| 구현 언어 | Release asset 생성과 검증은 Python 3.10 이상, host 적용 도구는 Bash |
+| 구현 언어 | Release asset 생성과 Package 검증은 Python 3.10 이상, host 절차 도구는 Bash |
 | 애플리케이션 인증 | Edge별 Backend token과 Camera별 Media token을 사용하는 Bearer 인증 |
 | Token 수명 주기 | 배포 도구가 credential Bootstrap과 명시적 rotation에서 생성 및 설치 |
 | Token Server 저장 | 식별자별 SHA-256 digest 1개, rotation 중 최대 2개 |
@@ -129,6 +133,7 @@ scrap-monitoring-deployment/
 |   |-- apply-release
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
+|   |-- release_verifier.py
 |   |-- retire-auth-secret
 |   |-- validate-auth-secrets
 |   |-- validate-environment
@@ -181,6 +186,7 @@ scrap-monitoring-deployment/
 |   |-- systemd/
 |   |-- test_auth_secrets.py
 |   |-- test_configuration.py
+|   |-- test_delivery_release.py
 |   |-- test_entrypoints.py
 |   |-- test_public_content.py
 |   |-- test_release.py
@@ -246,6 +252,8 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | --- | --- | --- | --- | --- |
 | Bash | `5.1` 이상 | Host 배포와 인증 정보 도구 실행 | [GNU Bash](https://www.gnu.org/software/bash/) | GPL-3.0-or-later |
 | GNU Coreutils | `8.32` 이상 | CSPRNG byte 변환, file 설치, digest와 권한 처리 | [GNU Coreutils](https://www.gnu.org/software/coreutils/) | GPL-3.0-or-later |
+| Python | `3.10` 이상 | 대상 host의 Release Package 구조와 Manifest 검증 | [Python](https://www.python.org/) | PSF-2.0 |
+| `curl` | `7.81.0` 이상 | GitHub Release에서 Online Package와 checksum을 HTTPS로 취득 | [curl](https://curl.se/) | curl license |
 | `jq` | `1.6` 이상 | Credential metadata와 digest registry 검증 및 갱신 | [jqlang](https://jqlang.org/) | MIT |
 | `flock` | util-linux `2.37` 이상 | Server digest registry 갱신 직렬화 | [util-linux](https://github.com/util-linux/util-linux) | GPL-2.0-or-later |
 | `step` CLI | `0.30.6` | PKI Bootstrap, Server 인증서 요청과 갱신 | [`smallstep/cli`](https://github.com/smallstep/cli) | Apache-2.0 |

@@ -87,6 +87,30 @@ class ReleaseManifestTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Draft202012Validator(self.schema).validate(manifest)
 
+    def test_publishable_manifest_rejects_noncanonical_image_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = manifest_with_components()
+            manifest["targets"]["edge"]["components"][0]["image"] = (
+                f"ghcr.io/ajin-scrap-monitoring/edge/../other@sha256:{'a' * 64}"
+            )
+            manifest_path = Path(temporary) / "v0.0.1.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VALIDATE_MANIFEST),
+                    "--version",
+                    "v0.0.1",
+                    "--manifest",
+                    str(manifest_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("invalid component image path", result.stderr)
+
     def test_component_provenance_is_required(self) -> None:
         manifest = manifest_with_components()
         del manifest["targets"]["edge"]["components"][0]["sourceRevision"]

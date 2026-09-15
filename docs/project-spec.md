@@ -56,7 +56,7 @@ Server의 미디어 수신 경계에 연결하며, 관리자 Browser는 허용�
 
 ## 배포 구성
 
-배포 구성의 최상위 영역은 5개다.
+배포 구성의 최상위 영역은 6개다.
 
 | 영역 | 책임 |
 | --- | --- |
@@ -65,6 +65,7 @@ Server의 미디어 수신 경계에 연결하며, 관리자 Browser는 허용�
 | `release` | 통합 배포 버전과 대상별 컴포넌트 버전 집합 |
 | `pki` | 공개 가능한 Private PKI 설정 template와 일반 배포의 인증서 자동화 도구 |
 | `docs` | 제품 명세, 채택한 구현 결정과 현재 상태 |
+| `notices` | Release asset에 포함할 Component별 외부 고지 |
 
 Docker Compose는 각 대상의 컨테이너, 네트워크, volume, health check와 서비스 의존 관계를
 정의한다. systemd는 운영체제 부팅 시 Docker Compose 구성과 필수 host mount를 준비하고

@@ -28,6 +28,7 @@ tests/validate-repository
 | `delivery/offline` | 외부 네트워크 없이 반입하고 적용하는 Offline Bundle |
 | `release` | 전체 시스템 배포 버전과 호환 컴포넌트 집합 |
 | `pki` | 공개 가능한 PKI 설정 template와 일반 배포의 인증서 자동화 도구 |
+| `notices` | Release asset에 포함할 Component별 외부 고지 |
 | `tests` | Compose, 배포, PKI와 Release 검증 |
 | `.github/workflows` | Repository 검증 CI |
 
