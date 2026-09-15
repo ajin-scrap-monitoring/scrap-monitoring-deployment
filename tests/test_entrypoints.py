@@ -7,10 +7,9 @@ import unittest
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SHELL_ENTRYPOINTS = [
-    REPOSITORY / "delivery" / "apply-release",
-]
+SHELL_ENTRYPOINTS = []
 IMPLEMENTED_ENTRYPOINTS = [
+    REPOSITORY / "delivery" / "apply-release",
     REPOSITORY / "delivery" / "verify-release",
     REPOSITORY / "delivery" / "online" / "fetch-release",
     REPOSITORY / "delivery" / "offline" / "import-bundle",

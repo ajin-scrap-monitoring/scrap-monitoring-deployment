@@ -26,21 +26,10 @@ pki-operations.md를 따른다.
 Release manifest는 통합 버전과 대상별 OCI (Open Container Initiative) image digest의 정본이다.
 배포 적용기는 manifest를 검증한 뒤 대상별 release.env를 생성한다.
 
-Edge의 Release 설정은 다음 값을 포함한다.
+대상별 Release 설정은 2종의 값을 포함한다.
 
-- DEPLOYMENT_REVISION
-- LIDAR_DRIVER_IMAGE
-- LIDAR_PROCESSING_IMAGE
-- MEASUREMENT_UPLINK_IMAGE
-- CAMERA_EDGE_IMAGE
-- EDGE_ORCHESTRATOR_IMAGE
-
-Server의 Release 설정은 다음 값을 포함한다.
-
-- DEPLOYMENT_REVISION
-- BACKEND_IMAGE
-- DASHBOARD_IMAGE
-- MEDIA_SERVICE_IMAGE
+- 통합 version을 가진 `DEPLOYMENT_REVISION`
+- Component 이름의 하이픈을 밑줄로 바꾸고 대문자로 변환한 `<COMPONENT_NAME>_IMAGE`
 
 release.env는 Release asset에서 생성한 파일이며 사람이 수정하지 않는다. Image 값은
 `ghcr.io/organization/image@sha256:digest` 형식의 실제 이름과 64자리 digest만 허용한다.
@@ -201,5 +190,6 @@ delivery/validate-environment는 실제 값을 출력하지 않고 schema versio
 systemd unit은 Compose 시작 전에 인증 파일을 검증한다. Component의 digest registry 입력과
 Compose service별 secret 연결은 Component 실행 계약이 확정되지 않아 구현되지 않았다.
 
-Manifest 기반 release.env 생성, Component 설정 hash 생성, 원자적 적용과 rollback은 아직
-구현되지 않았다.
+`delivery/apply-release`는 Manifest 기반 release.env와 Edge 설정 hash 생성, 불변 Version
+staging, current 및 previous 전환, systemd 시작, Compose 실행 상태 확인과 실패 rollback을
+구현한다.

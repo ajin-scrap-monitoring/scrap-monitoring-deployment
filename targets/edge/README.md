@@ -30,5 +30,5 @@ Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Con
 환경설정 schema, 연결 계약과 Compose 시작 전 원문 token 검증이 반영되어 있다. Edge
 Platform `v0.1.1` ARM64 image 5개는 Private GHCR Package로 게시되어 있다. Public 전환 또는
 예외 승인, non-root service의 secret 소유권, Root CA mount와 현장 인수가 확정되지
-않았다. 실제 Compose service, manifest 기반 release.env와 CONFIG_SHA256 생성은 구현되지
-않았다.
+않았다. 배포 적용기는 Manifest 기반 release.env와 CONFIG_SHA256을 생성하며 실제 Compose
+service는 구현되지 않았다.

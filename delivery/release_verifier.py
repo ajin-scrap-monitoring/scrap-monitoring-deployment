@@ -35,6 +35,7 @@ COMMON_MEMBERS = {
     "delivery/apply-release",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
+    "delivery/release_applier.py",
     "delivery/release_verifier.py",
     "delivery/retire-auth-secret",
     "delivery/validate-auth-secrets",
