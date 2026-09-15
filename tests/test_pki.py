@@ -31,6 +31,16 @@ def write_file(path: Path, content: str, mode: int) -> None:
     path.chmod(mode)
 
 
+def write_random_secret(path: Path) -> None:
+    with path.open("xb") as output:
+        subprocess.run(
+            ["openssl", "rand", "-hex", "32"],
+            check=True,
+            stdout=output,
+        )
+    path.chmod(0o600)
+
+
 def create_ca_state(temporary_path: Path) -> dict[str, Path]:
     bootstrap = temporary_path / "bootstrap"
     root_directory = temporary_path / "root"
@@ -126,8 +136,8 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
 
     intermediate_password = secrets / "intermediate_ca_password"
     provisioner_password = secrets / "provisioner_password"
-    write_file(intermediate_password, "intermediate-password\n", 0o600)
-    write_file(provisioner_password, "provisioner-password\n", 0o600)
+    write_random_secret(intermediate_password)
+    write_random_secret(provisioner_password)
     run_openssl(
         "pkcs8",
         "-topk8",
