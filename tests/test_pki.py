@@ -26,8 +26,11 @@ def run_openssl(*arguments: str) -> None:
     )
 
 
-def write_file(path: Path, content: str, mode: int) -> None:
-    path.write_text(content, encoding="utf-8")
+def write_public_fixture(path: Path, public_content: str, mode: int) -> None:
+    path.write_text(  # lgtm[py/clear-text-storage-sensitive-data]
+        public_content,
+        encoding="utf-8",
+    )
     path.chmod(mode)
 
 
@@ -88,7 +91,7 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
     intermediate_request = bootstrap / "intermediate.csr"
     intermediate_certificate = certs / "intermediate_ca.crt"
     intermediate_extensions = bootstrap / "intermediate.ext"
-    write_file(
+    write_public_fixture(
         intermediate_extensions,
         "basicConstraints=critical,CA:TRUE,pathlen:0\n"
         "keyUsage=critical,keyCertSign,cRLSign\n"
@@ -157,7 +160,7 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
         ["openssl", "x509", "-in", str(root_certificate), "-outform", "DER"]
     )
     fingerprint = hashlib.sha256(der).hexdigest()
-    write_file(root_directory / "root_ca.sha256", f"{fingerprint}\n", 0o640)
+    write_public_fixture(root_directory / "root_ca.sha256", f"{fingerprint}\n", 0o640)
     ca_config = {
         "address": ":9000",
         "dnsNames": ["step-ca", "127.0.0.1"],
@@ -173,8 +176,8 @@ def create_ca_state(temporary_path: Path) -> dict[str, Path]:
             "provisioners": [{"type": "JWK", "name": "deployment"}],
         },
     }
-    write_file(config / "ca.json", f"{json.dumps(ca_config)}\n", 0o640)
-    write_file(database / "state", "initialized\n", 0o600)
+    write_public_fixture(config / "ca.json", f"{json.dumps(ca_config)}\n", 0o640)
+    write_public_fixture(database / "state", "initialized\n", 0o600)
 
     root_directory.chmod(0o750)
     step_ca_directory.chmod(0o700)
@@ -213,7 +216,7 @@ def create_server_certificate(
         )
     request = temporary_path / f"server-{days}.csr"
     extensions = temporary_path / f"server-{days}.ext"
-    write_file(
+    write_public_fixture(
         extensions,
         "basicConstraints=critical,CA:FALSE\n"
         "keyUsage=critical,digitalSignature\n"
