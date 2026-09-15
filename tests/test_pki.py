@@ -13,7 +13,8 @@ VALIDATE_CA_STATE = REPOSITORY / "pki" / "validate-ca-state"
 VERIFY_SERVER_CERTIFICATE = REPOSITORY / "pki" / "verify-server-certificate"
 ENSURE_SERVER_CERTIFICATE = REPOSITORY / "pki" / "ensure-server-certificate"
 FQDN = "monitoring.example.invalid"
-PEM_CERTIFICATE_BEGIN = "".join(("-----BEGIN CERT", "IFICATE-----"))
+PEM_CERTIFICATE_LABEL = "CERTIFICATE"
+PEM_CERTIFICATE_BEGIN = f"-----BEGIN {PEM_CERTIFICATE_LABEL}-----"
 
 
 def run_openssl(*arguments: str) -> None:
