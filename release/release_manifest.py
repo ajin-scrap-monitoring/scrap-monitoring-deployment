@@ -81,6 +81,26 @@ def validate_components(
                 validate_notice(repository, notice)
 
 
+def release_variables(manifest: dict[str, Any], target: str) -> dict[str, str]:
+    variables = {"DEPLOYMENT_REVISION": manifest["version"]}
+    for component in manifest["targets"][target]["components"]:
+        variable = f"{component['name'].replace('-', '_').upper()}_IMAGE"
+        if variable in variables:
+            raise ValueError(f"duplicate release environment variable: {variable}")
+        variables[variable] = component["image"]
+    return variables
+
+
+def require_public_packages(manifest: dict[str, Any]) -> None:
+    for target in ("edge", "server"):
+        for component in manifest["targets"][target]["components"]:
+            if component["packageVisibility"] != "public":
+                raise ValueError(
+                    "private package is not supported by the release workflow: "
+                    f"{component['name']}"
+                )
+
+
 def load_manifest(
     repository: Path,
     manifest_path: Path,

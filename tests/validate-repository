@@ -4,12 +4,36 @@ set -euo pipefail
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repository}"
 
-npx --yes markdownlint-cli2@0.23.2 "**/*.md"
+node_modules/.bin/markdownlint-cli2 "**/*.md"
+npm audit --audit-level=high
 .venv/bin/yamllint .github/workflows .yamllint.yml targets
-find release pki/config -type f -name '*.json' -print0 | xargs -0 jq empty
-.venv/bin/ruff check delivery/offline/bundle_importer.py delivery/release_applier.py delivery/release_verifier.py release/build-assets release/validate-manifest release/release_manifest.py tests
-.venv/bin/ruff format --check delivery/offline/bundle_importer.py delivery/release_applier.py delivery/release_verifier.py release/build-assets release/validate-manifest release/release_manifest.py tests
-go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+find release pki/config -type f -name '*.json' -print0 \
+  | xargs -0 jq empty
+jq empty package.json package-lock.json
+.venv/bin/ruff check \
+  delivery/offline/bundle_importer.py \
+  delivery/release_applier.py \
+  delivery/release_verifier.py \
+  release/build-assets \
+  release/release_manifest.py \
+  release/target_validation.py \
+  release/validate-manifest \
+  release/validate-targets \
+  release/verify-assets \
+  tests
+.venv/bin/ruff format --check \
+  delivery/offline/bundle_importer.py \
+  delivery/release_applier.py \
+  delivery/release_verifier.py \
+  release/build-assets \
+  release/release_manifest.py \
+  release/target_validation.py \
+  release/validate-manifest \
+  release/validate-targets \
+  release/verify-assets \
+  tests
+go -C tools mod verify
+go -C tools tool actionlint "${repository}"/.github/workflows/*.yml
 docker compose -f targets/edge/compose.yaml config --quiet
 docker compose -f targets/server/compose.yaml config --quiet
 shellcheck \
@@ -26,6 +50,7 @@ shellcheck \
   pki/ensure-server-certificate \
   pki/verify-server-certificate \
   release/pull-images \
+  tools/install-validation \
   tests/validate-test-host \
   tests/validate-repository
 systemd-analyze verify \

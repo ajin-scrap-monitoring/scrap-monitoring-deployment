@@ -6,12 +6,11 @@
 
 ## 빠른 시작
 
-Repository 검증에는 Python 3.10 이상, Node.js, Go, Docker Compose, ShellCheck와
-`systemd-analyze`가 필요하다.
+Repository 검증에는 Python `3.13.15`, Node.js `24.21.0`, npm `11.19.0`, Go `1.27.1`,
+uv `0.12.15`, Docker Compose `5.5.1`, ShellCheck와 `systemd-analyze`가 필요하다.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install --requirement requirements-tooling.txt
+tools/install-validation
 tests/validate-repository
 ```
 
@@ -30,7 +29,7 @@ tests/validate-repository
 | `pki` | 공개 가능한 PKI 설정 template와 일반 배포의 인증서 자동화 도구 |
 | `notices` | Release asset에 포함할 Component별 외부 고지 |
 | `tests` | Compose, 배포, PKI와 Release 검증 |
-| `.github/workflows` | Repository 검증 CI |
+| `.github/workflows` | Repository 검증 CI와 통합 Release 게시 |
 
 ## 문서
 

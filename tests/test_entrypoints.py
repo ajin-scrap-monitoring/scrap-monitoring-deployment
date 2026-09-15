@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SHELL_ENTRYPOINTS = []
 IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "apply-release",
     REPOSITORY / "delivery" / "verify-release",
@@ -22,17 +21,20 @@ IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "pki" / "ensure-server-certificate",
     REPOSITORY / "pki" / "verify-server-certificate",
     REPOSITORY / "release" / "pull-images",
+    REPOSITORY / "tools" / "install-validation",
     REPOSITORY / "tests" / "validate-test-host",
 ]
 PYTHON_ENTRYPOINTS = [
     REPOSITORY / "release" / "build-assets",
     REPOSITORY / "release" / "validate-manifest",
+    REPOSITORY / "release" / "validate-targets",
+    REPOSITORY / "release" / "verify-assets",
 ]
 
 
 class EntrypointTest(unittest.TestCase):
     def test_shell_entrypoints_are_executable_and_have_help(self) -> None:
-        for entrypoint in [*SHELL_ENTRYPOINTS, *IMPLEMENTED_ENTRYPOINTS]:
+        for entrypoint in IMPLEMENTED_ENTRYPOINTS:
             with self.subTest(entrypoint=entrypoint):
                 self.assertTrue(os.access(entrypoint, os.X_OK))
                 result = subprocess.run(
@@ -53,17 +55,6 @@ class EntrypointTest(unittest.TestCase):
                     text=True,
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
-
-    def test_unimplemented_entrypoints_do_not_report_success(self) -> None:
-        for entrypoint in SHELL_ENTRYPOINTS:
-            with self.subTest(entrypoint=entrypoint):
-                result = subprocess.run(
-                    [str(entrypoint)],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertNotEqual(0, result.returncode)
 
 
 if __name__ == "__main__":

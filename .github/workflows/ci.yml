@@ -15,15 +15,53 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Install Python tooling
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --disable-pip-version-check --requirement requirements-tooling.txt
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: 1.27.1
+          cache-dependency-path: tools/go.sum
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        with:
+          version: 0.12.15
+          python-version: 3.13.15
+          enable-cache: false
+
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2  # v2.3.0
+        with:
+          version: v5.5.1
+          cache-binary: true
+
+      - name: Install validation tooling
+        run: tools/install-validation
 
       - name: Validate repository
         run: tests/validate-repository
+
+      - name: Test minimum Python version
+        run: |
+          uv venv --python 3.10.21 "${RUNNER_TEMP}/python-minimum"
+          uv pip sync \
+            --python "${RUNNER_TEMP}/python-minimum/bin/python" \
+            --require-hashes \
+            requirements-tooling.txt
+          PATH="${RUNNER_TEMP}/python-minimum/bin:${PATH}" \
+            "${RUNNER_TEMP}/python-minimum/bin/python" -m unittest discover \
+            --start-directory tests \
+            --pattern 'test_*.py'

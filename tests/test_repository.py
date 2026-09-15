@@ -11,6 +11,8 @@ class RepositoryStructureTest(unittest.TestCase):
         required_paths = [
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
+            "package-lock.json",
+            "package.json",
             "delivery/apply-release",
             "delivery/release_applier.py",
             "delivery/generate-auth-secret",
@@ -41,11 +43,19 @@ class RepositoryStructureTest(unittest.TestCase):
             "release/manifests/README.md",
             "release/pull-images",
             "release/release_manifest.py",
+            "release/target_validation.py",
             "release/validate-manifest",
+            "release/validate-targets",
+            "release/verify-assets",
+            "requirements-tooling.in",
+            "requirements-tooling.txt",
             "targets/edge/compose.yaml",
             "targets/server/compose.yaml",
             "tests/validate-repository",
             "tests/validate-test-host",
+            "tools/go.mod",
+            "tools/go.sum",
+            "tools/install-validation",
         ]
         missing = [path for path in required_paths if not (REPOSITORY / path).is_file()]
         self.assertEqual([], missing)

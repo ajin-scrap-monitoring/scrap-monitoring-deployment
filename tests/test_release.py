@@ -20,6 +20,7 @@ MANIFEST_PATH = REPOSITORY / "release" / "manifest.example.json"
 BUILD_ASSETS = REPOSITORY / "release" / "build-assets"
 PULL_IMAGES = REPOSITORY / "release" / "pull-images"
 VALIDATE_MANIFEST = REPOSITORY / "release" / "validate-manifest"
+VERIFY_ASSETS = REPOSITORY / "release" / "verify-assets"
 
 
 def component(
@@ -133,6 +134,34 @@ class ReleaseManifestTest(unittest.TestCase):
         manifest["targets"]["edge"]["components"][0]["privateReason"] = "Not applicable"
         with self.assertRaises(ValidationError):
             Draft202012Validator(self.schema).validate(manifest)
+
+    def test_release_workflow_rejects_private_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = manifest_with_components()
+            private_component = manifest["targets"]["edge"]["components"][0]
+            private_component["packageVisibility"] = "private"
+            private_component["pullAuthentication"] = "ghcr-read-token"
+            private_component["privateReason"] = "Contractual distribution limit"
+            manifest_path = Path(temporary) / "v0.0.1.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VALIDATE_MANIFEST),
+                    "--version",
+                    "v0.0.1",
+                    "--manifest",
+                    str(manifest_path),
+                    "--require-public-packages",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("private package is not supported", result.stderr)
 
     def test_publishable_manifest_requires_components(self) -> None:
         result = subprocess.run(
@@ -259,6 +288,37 @@ exit 1
 
 
 class ReleaseAssetsTest(unittest.TestCase):
+    def build_assets(self, temporary_path: Path) -> Path:
+        edge_images = temporary_path / "edge-images.tar"
+        server_images = temporary_path / "server-images.tar"
+        output = temporary_path / "output"
+        manifest_path = temporary_path / "v0.0.1.json"
+        edge_images.write_bytes(b"edge image archive fixture\n")
+        server_images.write_bytes(b"server image archive fixture\n")
+        manifest_path.write_text(
+            json.dumps(manifest_with_components()), encoding="utf-8"
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                str(BUILD_ASSETS),
+                "--version",
+                "v0.0.1",
+                "--manifest",
+                str(manifest_path),
+                "--edge-image-archive",
+                str(edge_images),
+                "--server-image-archive",
+                str(server_images),
+                "--output",
+                str(output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return output
+
     def test_rejects_symbolic_image_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
@@ -344,6 +404,91 @@ class ReleaseAssetsTest(unittest.TestCase):
                 {path.name: path.read_bytes() for path in output.iterdir()},
                 {path.name: path.read_bytes() for path in second_output.iterdir()},
             )
+
+    def test_verifies_complete_release_asset_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.build_assets(Path(temporary))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_ASSETS),
+                    "--version",
+                    "v0.0.1",
+                    "--directory",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_asset_verifier_rejects_unexpected_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.build_assets(Path(temporary))
+            (output / "unexpected.txt").write_text("unexpected\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_ASSETS),
+                    "--version",
+                    "v0.0.1",
+                    "--directory",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("asset set does not match", result.stderr)
+
+    def test_asset_verifier_rejects_symbolic_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            output = self.build_assets(temporary_path)
+            symbolic_output = temporary_path / "symbolic-output"
+            symbolic_output.symlink_to(output, target_is_directory=True)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_ASSETS),
+                    "--version",
+                    "v0.0.1",
+                    "--directory",
+                    str(symbolic_output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing or symbolic", result.stderr)
+
+    def test_asset_verifier_rejects_extra_checksum_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.build_assets(Path(temporary))
+            checksums = output / "SHA256SUMS"
+            checksums.write_text(
+                checksums.read_text(encoding="utf-8")
+                + f"{'0' * 64}  unexpected.tar.gz\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_ASSETS),
+                    "--version",
+                    "v0.0.1",
+                    "--directory",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("checksum asset set does not match", result.stderr)
 
     def assert_checksums(self, output: Path) -> None:
         for line in (output / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
