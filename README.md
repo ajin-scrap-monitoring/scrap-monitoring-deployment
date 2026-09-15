@@ -4,16 +4,6 @@
 소스 코드는 해당 개발 Repository에서 관리하고, 이 Repository는 호환되는 컴포넌트 버전과
 운영 구성을 하나의 배포 버전으로 묶는다.
 
-## 문서
-
-| 문서 | 역할 |
-| --- | --- |
-| [`docs/project-spec.md`](docs/project-spec.md) | 배포 프로젝트의 목적, 범위와 외부 경계 |
-| [`docs/deployment-contract.md`](docs/deployment-contract.md) | 외부 입력과 배포 영역별 기대 동작 |
-| [`docs/configuration-management.md`](docs/configuration-management.md) | 환경설정의 소유권, 저장 위치와 동기화 |
-| [`docs/implementation.md`](docs/implementation.md) | 채택한 배포 구조와 현재 구현 상태 |
-| [`docs/pki-operations.md`](docs/pki-operations.md) | Private PKI 수동 구성과 일반 배포 자동화 |
-
 ## 빠른 시작
 
 Repository 검증에는 Python 3.10 이상, Node.js, Go, Docker Compose, ShellCheck와
@@ -40,6 +30,16 @@ tests/validate-repository
 | `pki` | 공개 가능한 PKI 설정 template와 일반 배포의 인증서 자동화 도구 |
 | `tests` | Compose, 배포, PKI와 Release 검증 |
 | `.github/workflows` | Repository 검증 CI |
+
+## 문서
+
+| 문서 | 역할 |
+| --- | --- |
+| [`docs/project-spec.md`](docs/project-spec.md) | 배포 프로젝트의 목적, 범위와 외부 경계 |
+| [`docs/deployment-contract.md`](docs/deployment-contract.md) | 외부 입력과 배포 영역별 기대 동작 |
+| [`docs/configuration-management.md`](docs/configuration-management.md) | 환경설정의 소유권, 저장 위치와 동기화 |
+| [`docs/implementation.md`](docs/implementation.md) | 채택한 배포 구조와 현재 구현 상태 |
+| [`docs/pki-operations.md`](docs/pki-operations.md) | Private PKI 수동 구성과 일반 배포 자동화 |
 
 ## 소스 이용 조건
 

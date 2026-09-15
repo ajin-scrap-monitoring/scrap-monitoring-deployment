@@ -98,7 +98,7 @@ Public GHCR (GitHub Container Registry) Package로 제공한다. 배포 제한�
 
 | 항목 | 결정 |
 | --- | --- |
-| 사람이 읽는 image tag | 통합 Release version에서 파생한 `MAJOR.MINOR.PATCH` |
+| 사람이 읽는 image tag | 기능별 Repository의 Release version에서 파생한 `MAJOR.MINOR.PATCH` |
 | source revision tag | `sha-<full-git-sha>` |
 | 변경 가능한 tag | `latest`를 게시하지 않음 |
 | 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |

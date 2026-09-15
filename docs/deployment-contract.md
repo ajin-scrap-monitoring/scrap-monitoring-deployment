@@ -27,6 +27,7 @@
 | 항목 | 필수 내용 |
 | --- | --- |
 | Component 식별 | 고유 이름과 담당 기능 |
+| Component 출처 | Public source Repository, Release version과 full Git commit |
 | 배포 대상 | `edge` 또는 `server` |
 | Container image | GitHub Container Registry (GHCR) 경로, Release image tag와 Secure Hash Algorithm 256-bit (SHA-256) digest |
 | Package 공개 범위 | Public 기본, 공개 제한 사유가 정본에 기록된 경우에만 Private |
@@ -95,7 +96,7 @@ Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상�
 | --- | --- |
 | `release` | Manifest 검증, 대상별 package와 Bundle 생성, checksum 작성 |
 | `delivery/online` | Release metadata와 Online Package 취득 |
-| `delivery/offline` | Offline Bundle 생성, 검증과 image import |
+| `delivery/offline` | Offline Bundle 검증과 image import |
 | `delivery` | 애플리케이션 token 관리, 공통 검증, 적용, 상태 확인과 rollback |
 | `targets` | Edge와 Server의 Compose 목표 상태와 systemd 연결 |
 | `pki` | 기존 CA 검증과 Server 인증서 발급, 갱신 및 검증 |
@@ -158,9 +159,9 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 
 ### Offline Bundle
 
-1. 외부 연결이 가능한 빌드 환경에서 통합 버전과 대상을 입력받는다.
-2. Manifest가 참조한 대상 platform의 image를 digest로 취득한다.
-3. 대상별 배포 파일과 image archive를 하나의 Offline Bundle로 생성한다.
+1. Release workflow가 외부 연결 가능한 환경에서 대상별 image를 digest로 취득한다.
+2. `release/build-assets`가 대상별 배포 파일과 image archive를 Offline Bundle로 생성한다.
+3. Release 작업자가 통합 버전, 대상과 checksum을 확인한다.
 4. Bundle과 checksum manifest를 이동식 매체로 대상 환경에 반입한다.
 5. 대상 환경에서 checksum을 검증한 뒤 image archive를 Container runtime에 import한다.
 6. 공통 검증과 적용 절차에 Bundle을 전달한다.
@@ -169,14 +170,29 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 
 1. Asset checksum, Manifest schema, 통합 버전, 대상과 architecture를 확인한다.
 2. 대상별 실제 설정, host storage, 장치, network, 인증 파일과 PKI 선행 조건을 확인한다.
-3. 새 버전을 `/srv/scrap-monitoring/deployment` 아래의 독립된 version 경로에 staging한다.
+3. 새 버전을 `/srv/scrap-monitoring/deployment/versions/<version>`에 staging한다.
 4. Docker Compose 구성을 검증하고 필요한 Server 인증서 상태를 준비한다.
-5. `current`가 가리키는 version을 전환하고 대상별 systemd unit을 시작하거나 재시작한다.
+5. 기존 `current`를 `previous`로 보존하고 `current` symlink를 새 version으로 전환한 뒤 대상별
+   systemd unit을 시작하거나 재시작한다.
 6. Compose health check와 외부 HTTPS 또는 WebSocket Secure (WSS) 연결을 확인한다.
 7. 적용 확인이 실패하면 이전 `current` version과 이전 인증서 상태로 복구하고 실패를 반환한다.
 
 배포 갱신은 Git 외부의 환경 설정과 영속 데이터를 덮어쓰거나 삭제하지 않는다. 같은 통합 버전의
 재적용은 같은 목표 상태를 만들고 불필요한 CA, key와 영속 상태를 다시 생성하지 않는다.
+
+배포 상태 경로는 6개다.
+
+| 상태 | 경로 |
+| --- | --- |
+| Version root | `/srv/scrap-monitoring/deployment/versions` |
+| 활성 Version | `/srv/scrap-monitoring/deployment/current` |
+| 이전 Version | `/srv/scrap-monitoring/deployment/previous` |
+| 대상 적용 상태 | `/srv/scrap-monitoring/deployment/state/<target>.json` |
+| Edge 파생 환경 | `/srv/scrap-monitoring/deployment/state/edge.generated.env` |
+| 배포 lock | `/run/lock/scrap-monitoring-deployment.lock` |
+
+`current`와 `previous`는 `versions` 아래의 검증된 경로만 가리킨다. 적용 상태에는 secret 값과
+환경설정 값을 기록하지 않고 version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 
 ## 실행 파일 계약
 
@@ -192,16 +208,15 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 
 | 실행 파일 | 입력 | 성공 조건 |
 | --- | --- | --- |
-| `delivery/online/fetch-release` | 통합 버전, 대상과 출력 경로 | 검증 가능한 Online Package와 checksum 취득 |
-| `delivery/offline/build-bundle` | Manifest와 대상 image archive | 대상별 Offline Bundle과 checksum 생성 |
-| `delivery/offline/import-bundle` | 대상별 Bundle과 checksum | 검증된 대상 image의 local import |
-| `delivery/verify-release` | Package 또는 Bundle과 checksum | checksum, Manifest, 대상과 architecture 검증 |
+| `delivery/online/fetch-release` | `--version`, `--target`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
+| `delivery/offline/import-bundle` | `--version`, `--target`, `--bundle`, `--checksums` | 검증된 대상 image의 local import |
+| `delivery/verify-release` | `--version`, `--target`, `--package`, `--checksums` | checksum, archive, Manifest와 대상 검증 |
 | `delivery/generate-auth-secret` | 인증 경계, 식별자와 출력 경로 | 독립적인 256-bit token bundle 생성 |
 | `delivery/install-auth-secret` | 대상과 credential bundle | Edge 원문 token의 파일별 원자적 설치 또는 Server registry의 원자적 전환 |
 | `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 digest 폐기 |
 | `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자, digest와 권한 검증 |
 | `delivery/validate-environment` | 대상과 실제 환경 파일 | Schema version, 변수 집합과 빈 값 검증 |
-| `delivery/apply-release` | 검증된 대상 package | Version staging, 목표 상태 전환과 상태 확인 |
+| `delivery/apply-release` | `--version`, `--target`, `--package`, `--checksums`, `--mode` | 재검증, Version staging, 목표 상태 전환과 상태 확인 |
 
 모든 실행 파일은 입력 오류, 검증 실패와 미구현 동작에 성공 code를 반환하지 않는다. 실패 메시지는
 실패한 단계와 대상을 식별할 수 있어야 하며 자격 증명과 secret 값을 출력하지 않는다.
@@ -298,15 +313,49 @@ Server는 Release 적용과 운영 상태 확인에만 사용한다.
 
 ## 미확정 입력 처리
 
-다음 입력이 없으면 관련 실제 구현을 완료된 것으로 기록하지 않는다.
+외부 입력이 필요한 영역은 5개다.
 
-- Component image와 실행 계약이 없으면 대상별 Compose service 구성을 보류한다.
-- 실제 환경 파일의 schema가 대상별 `.env.example`과 일치하지 않으면 적용을 중단한다.
-- Backend가 Bearer token의 file 기반 입력, Edge 측정 ACK와 heartbeat 계약을 제공하지 않으면
-  Server 연동 완료로 간주하지 않는다.
-- Camera Media Service가 digest registry 기반 secret 입력을 제공하지 않으면 운영 배포 완료로
-  간주하지 않는다.
-- Backend의 Browser session과 CSRF 계약이 없으면 Browser 인증 경계를 완료로 간주하지 않는다.
-- Database migration과 rollback 계약이 없으면 schema 변경 Release의 자동 rollback을 허용하지 않는다.
-- 실제 CA 상태와 Server FQDN이 없으면 Server 인증서를 발급하거나 TLS 종단을 시작하지 않는다.
-- Release에 필요한 image가 없으면 실제 Offline Bundle과 GitHub Release를 게시하지 않는다.
+### Edge Platform
+
+- Private GHCR Package의 승인된 예외 사유 또는 Public 전환
+- Private 유지 시 대상 장비의 read-only pull 인증 계약
+- UID `10001` service가 host secret을 읽는 소유권과 mode
+- HTTPS 및 WSS Client가 사용할 Root CA file 입력과 mount
+- 실제 Raspberry Pi, LiDAR, Camera와 운영 보정값의 인수 결과
+
+### Backend
+
+- Edge별 Bearer digest registry file 입력과 constant-time 검증
+- Edge measurement schema, `Idempotency-Key`, 저장 후 ACK와 중복 처리
+- Edge heartbeat endpoint와 상태 저장 model
+- 운영 Database version, migration, volume, backup과 rollback 계약
+- 기본 계정을 사용하지 않는 사용자 저장소, session 영속화와 필수 CSRF 검증
+- `linux/amd64` Release image digest와 외부 고지
+
+### Camera Media Service
+
+- Camera별 Bearer digest registry file 입력과 2개 digest rotation
+- UID `10002` service의 secret 소유권과 mode
+- Liveness, readiness와 reverse proxy 뒤의 평문 WebSocket 계약
+- Browser 전달 protocol, 짧은 수명 media ticket과 권한 검증
+- 녹화 형식, segment, storage quota, retention과 복구 계약
+- `linux/amd64` Release image digest와 외부 고지
+
+### Dashboard
+
+- Backend OpenAPI와 Server-Sent Events (SSE) 계약 승인
+- WebRTC-HTTP Egress Protocol (WHEP) signaling과 재연결 계약 승인
+- Nginx upstream, route, timeout, request limit과 Content Security Policy (CSP) 값
+- Backend session과 CSRF 오류 처리 계약
+
+### 운영 환경
+
+- Server FQDN, DNS, bind 주소, port와 허용 network 경로
+- 대상 Docker host, storage 경로, 용량과 UID 및 GID 매핑
+- Root CA trust, 기존 Intermediate CA 상태와 발급 자격 증명
+- PostgreSQL backup 및 복구 위치와 실제 LiDAR 및 Camera 장치
+- Docker Compose 실행 검증에 사용할 별도 Ubuntu test host
+
+위 입력이 없으면 실제 Compose service, 통합 Release, 외부 HTTPS 및 WSS 연결과 현장 배포를
+완료 상태로 기록하지 않는다. 실제 환경 파일의 schema가 대상별 `.env.example`과 일치하지 않으면
+적용을 중단한다.
