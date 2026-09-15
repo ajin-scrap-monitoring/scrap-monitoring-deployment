@@ -28,4 +28,5 @@ Backend port는 Container network에만 두며 외부 Client는 Server의 HTTPS 
 환경설정 schema, 라우팅 계약과 Compose 시작 전 digest registry 검증이 반영되어 있다.
 Dashboard `v0.1.2` Public AMD64 image는 게시되어 있다. Backend와 Camera Media Service의
 Release image, Edge 측정과 heartbeat 계약, digest registry 입력과 운영 Database 계약은
-확정되지 않았다. Service별 secret 연결과 실제 Compose service는 구현되지 않았다.
+확정되지 않았다. 배포 적용기는 Manifest 기반 release.env와 Server 인증서를 준비하며
+service별 secret 연결과 실제 Compose service는 구현되지 않았다.

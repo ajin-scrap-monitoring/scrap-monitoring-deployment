@@ -211,11 +211,13 @@ Load 후 Manifest가 참조한 모든 image digest의 local 존재와 대상 pla
 
 1. Asset checksum, Manifest schema, 통합 버전, 대상과 architecture를 확인한다.
 2. 대상별 실제 설정, host storage, 장치, network, 인증 파일과 PKI 선행 조건을 확인한다.
-3. 새 버전을 `/srv/scrap-monitoring/deployment/versions/<version>`에 staging한다.
+3. 취득 전용 도구와 Offline image archive를 제외한 실행 payload를
+   `/srv/scrap-monitoring/deployment/versions/<version>`에 staging하고 내용 digest를 고정한다.
 4. Docker Compose 구성을 검증하고 필요한 Server 인증서 상태를 준비한다.
 5. 기존 `current`를 `previous`로 보존하고 `current` symlink를 새 version으로 전환한 뒤 대상별
    systemd unit을 시작하거나 재시작한다.
-6. Compose health check와 외부 HTTPS 또는 WebSocket Secure (WSS) 연결을 확인한다.
+6. systemd가 Docker Compose의 `--wait` 조건을 통과하고 모든 Compose service가 실행 중인지
+   확인한 뒤 외부 HTTPS 또는 WebSocket Secure (WSS) 연결을 확인한다.
 7. 적용 확인이 실패하면 이전 `current` version과 이전 인증서 상태로 복구하고 실패를 반환한다.
 
 배포 갱신은 Git 외부의 환경 설정과 영속 데이터를 덮어쓰거나 삭제하지 않는다. 같은 통합 버전의
@@ -237,8 +239,10 @@ digest를 서로 비교한다.
 | Edge 파생 환경 | `/srv/scrap-monitoring/deployment/state/edge.generated.env` |
 | 배포 lock | `/run/lock/scrap-monitoring-deployment.lock` |
 
-`current`와 `previous`는 `versions` 아래의 검증된 경로만 가리킨다. 적용 상태에는 secret 값과
-환경설정 값을 기록하지 않고 version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
+`current`와 `previous`는 `versions` 아래의 검증된 직접 하위 경로만 가리킨다. Version의
+`deployment-metadata.json`은 version, target, platform, Manifest digest와 실행 payload digest를
+기록한다. 대상 적용 상태에는 secret 값과 환경설정 값을 기록하지 않고 schema version, 요청
+version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 
 ## 실행 파일 계약
 

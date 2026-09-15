@@ -20,9 +20,11 @@ rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
 
-`delivery/apply-release`는 명령 계약만 유지하는 stub이다. Stub은 `--help`만 성공하고 실제
-실행은 미구현 오류로 종료하므로 현재 Repository만으로 end-to-end 배포를 수행할 수
-없다.
+`delivery/apply-release`는 Package mode, host architecture와 image platform을 검증하고 취득 전용
+파일을 제외한 실행 payload를 불변 Version 경로에 staging한다. Manifest에서 release.env를,
+Edge 설정 원본에서 CONFIG_SHA256을 생성하고 환경, secret과 Compose를 검증한 뒤 current와
+previous를 원자적으로 전환한다. systemd와 Compose 실행 상태가 실패하면 이전 link, Edge 파생
+설정과 Server 인증서를 복구한다.
 
 `delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
 version, target, mode와 platform을 교차 검증한다. `delivery/online/fetch-release`는 고정된
@@ -52,10 +54,9 @@ GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를
 Monitoring Server에는 Root CA 인증서, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
 인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
 Keychain에는 운영 Root CA trust가 등록되어 있다. Windows PC의 Client trust 등록, Camera Edge
-Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의, Server 인증서를
-적용하는 일반 배포와 배포 도구의 실제 동작은 아직 없다. 두 배포 대상 host에는 Docker Engine,
-Docker Compose plugin과 containerd가 설치되어 있고 Docker daemon의 부팅 자동 시작과 로그
-제한이 구성되어 있다.
+Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의와 외부 HTTPS 및 WSS
+검증은 아직 없다. 두 배포 대상 host에는 Docker Engine, Docker Compose plugin과 containerd가
+설치되어 있고 Docker daemon의 부팅 자동 시작과 로그 제한이 구성되어 있다.
 
 ## Component 연동 상태
 
@@ -107,7 +108,7 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | Image tag 정책 | Release version tag와 `sha-<full-git-sha>` source revision tag, `latest` 미사용 |
 | 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
 | Release archive 형식 | `.tar.gz` |
-| 구현 언어 | Release asset 생성과 Package 검증은 Python 3.10 이상, host 절차 도구는 Bash |
+| 구현 언어 | Release asset 생성, Package 검증과 적용 상태 머신은 Python 3.10 이상, host 실행 진입점은 Bash |
 | 애플리케이션 인증 | Edge별 Backend token과 Camera별 Media token을 사용하는 Bearer 인증 |
 | Token 수명 주기 | 배포 도구가 credential Bootstrap과 명시적 rotation에서 생성 및 설치 |
 | Token Server 저장 | 식별자별 SHA-256 digest 1개, rotation 중 최대 2개 |
@@ -142,6 +143,7 @@ scrap-monitoring-deployment/
 |   |-- apply-release
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
+|   |-- release_applier.py
 |   |-- release_verifier.py
 |   |-- retire-auth-secret
 |   |-- validate-auth-secrets
@@ -193,6 +195,7 @@ scrap-monitoring-deployment/
 |   |-- pki/
 |   |-- release/
 |   |-- systemd/
+|   |-- test_apply_release.py
 |   |-- test_auth_secrets.py
 |   |-- test_configuration.py
 |   |-- test_delivery_release.py

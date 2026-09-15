@@ -366,6 +366,7 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("targets/edge/compose.yaml", names)
             self.assertIn("docs/configuration-management.md", names)
             self.assertIn("delivery/validate-environment", names)
+            self.assertIn("delivery/release_applier.py", names)
             self.assertIn("delivery/online/fetch-release", names)
             self.assertNotIn("delivery/offline/import-bundle", names)
             self.assertNotIn("delivery/offline/build-bundle", names)
