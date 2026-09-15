@@ -105,6 +105,39 @@ Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상�
 
 ## Release 생성
 
+Release Package descriptor의 필드는 7개다.
+
+| 필드 | 내용 |
+| --- | --- |
+| `schemaVersion` | Package schema version |
+| `version` | 통합 Release version |
+| `target` | `edge` 또는 `server` |
+| `mode` | `online` 또는 `offline` |
+| `platform` | `linux/arm64` 또는 `linux/amd64` |
+| `manifestSha256` | Package 내 Release manifest의 SHA-256 digest |
+| `imageArchive` | Offline Bundle의 대상별 image archive 경로 |
+
+`imageArchive`는 Offline Bundle에만 포함한다. Edge는 `linux/arm64`, Server는
+`linux/amd64`만 허용하며 descriptor와 Manifest의 version, target, platform과 digest가
+일치해야 한다.
+
+Package payload 영역은 8개다.
+
+| 영역 | 포함 조건 |
+| --- | --- |
+| Package descriptor | 모든 Package |
+| Release manifest, schema와 검증기 | 모든 Package |
+| 대상별 `targets` 목표 상태 | 모든 Package |
+| 공통 배포 도구와 배포 mode별 취득 도구 | 모든 Package |
+| 운영 문서와 Repository 이용 조건 | 모든 Package |
+| Manifest가 참조한 외부 고지 | 모든 Package |
+| PKI 설정과 운영 도구 | Server Package |
+| 대상별 image archive | Offline Bundle |
+
+Package 생성기는 명시적 allowlist에 있는 일반 파일만 포함하고 symbolic link와
+누락된 외부 고지를 거부한다. Archive의 경로 순서, 시간, 소유자와 file mode를
+정규화하여 같은 입력은 동일한 byte의 asset을 생성한다.
+
 Release 생성은 다음 순서를 제공한다.
 
 1. Release tag 형식과 tag commit의 원격 `main` 포함 여부를 확인한다.

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scrap Monitoring Release Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "version",
+    "target",
+    "mode",
+    "platform",
+    "manifestSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "target": {
+      "enum": [
+        "edge",
+        "server"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "online",
+        "offline"
+      ]
+    },
+    "platform": {
+      "enum": [
+        "linux/arm64",
+        "linux/amd64"
+      ]
+    },
+    "manifestSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "imageArchive": {
+      "type": "string",
+      "pattern": "^images/(edge|server)-images\\.tar$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "target": {
+            "const": "edge"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "platform": {
+            "const": "linux/arm64"
+          },
+          "imageArchive": {
+            "const": "images/edge-images.tar"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "platform": {
+            "const": "linux/amd64"
+          },
+          "imageArchive": {
+            "const": "images/server-images.tar"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "offline"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "imageArchive"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "imageArchive"
+          ]
+        }
+      }
+    }
+  ]
+}

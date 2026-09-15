@@ -5,12 +5,55 @@ import argparse
 import gzip
 import hashlib
 import json
+import stat
 import tarfile
 import tempfile
-from collections.abc import Iterable
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
 from release_manifest import load_manifest
+
+COMMON_PAYLOAD_FILES = (
+    "README.md",
+    "requirements-tooling.txt",
+    "delivery/README.md",
+    "delivery/apply-release",
+    "delivery/generate-auth-secret",
+    "delivery/install-auth-secret",
+    "delivery/retire-auth-secret",
+    "delivery/validate-auth-secrets",
+    "delivery/validate-environment",
+    "delivery/verify-release",
+    "release/manifest.schema.json",
+    "release/package.schema.json",
+    "release/release_manifest.py",
+    "release/validate-manifest",
+)
+MODE_PAYLOAD_FILES = {
+    "online": (
+        "delivery/online/README.md",
+        "delivery/online/fetch-release",
+    ),
+    "offline": (
+        "delivery/offline/README.md",
+        "delivery/offline/import-bundle",
+    ),
+}
+EXECUTABLE_PAYLOAD_FILES = {
+    "delivery/apply-release",
+    "delivery/generate-auth-secret",
+    "delivery/install-auth-secret",
+    "delivery/retire-auth-secret",
+    "delivery/validate-auth-secrets",
+    "delivery/validate-environment",
+    "delivery/verify-release",
+    "delivery/online/fetch-release",
+    "delivery/offline/import-bundle",
+    "pki/ensure-server-certificate",
+    "pki/validate-ca-state",
+    "pki/verify-server-certificate",
+    "release/validate-manifest",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,19 +68,56 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def payload_files(repository: Path, target: str) -> Iterable[tuple[Path, Path]]:
-    roots = [
-        repository / "targets" / target,
-        repository / "delivery",
-        repository / "docs",
-    ]
-    if target == "server":
-        roots.append(repository / "pki")
+def require_regular_file(source: Path, destination: Path) -> tuple[Path, Path]:
+    if source.is_symlink() or not source.exists():
+        raise ValueError(f"payload source is missing or symbolic: {destination}")
+    if not stat.S_ISREG(source.stat().st_mode):
+        raise ValueError(f"payload source is not a regular file: {destination}")
+    return source, destination
 
-    for root in roots:
-        for source in sorted(root.rglob("*")):
-            if source.is_file() and "__pycache__" not in source.parts:
-                yield source, source.relative_to(repository)
+
+def tree_files(repository: Path, relative_root: Path) -> list[tuple[Path, Path]]:
+    root = repository / relative_root
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"payload root is missing or symbolic: {relative_root}")
+
+    files = []
+    for source in sorted(root.rglob("*")):
+        destination = source.relative_to(repository)
+        if source.is_symlink():
+            raise ValueError(f"payload source is symbolic: {destination}")
+        if source.is_dir():
+            continue
+        files.append(require_regular_file(source, destination))
+    return files
+
+
+def payload_files(
+    repository: Path,
+    target: str,
+    mode: str,
+    manifest: dict[str, object],
+) -> list[tuple[Path, Path]]:
+    relative_files = {
+        Path(path) for path in [*COMMON_PAYLOAD_FILES, *MODE_PAYLOAD_FILES[mode]]
+    }
+    relative_files.add(Path("notices/README.md"))
+    for target_manifest in manifest["targets"].values():
+        for component in target_manifest["components"]:
+            relative_files.update(Path(path) for path in component["notices"])
+
+    files = [
+        require_regular_file(repository / path, path) for path in sorted(relative_files)
+    ]
+    files.extend(tree_files(repository, Path("docs")))
+    files.extend(tree_files(repository, Path("targets") / target))
+    if target == "server":
+        files.extend(tree_files(repository, Path("pki")))
+
+    destinations = [destination for _, destination in files]
+    if len(destinations) != len(set(destinations)):
+        raise ValueError("payload allowlist contains duplicate destinations")
+    return sorted(files, key=lambda item: item[1].as_posix())
 
 
 def normalize_tar_info(info: tarfile.TarInfo) -> tarfile.TarInfo:
@@ -46,6 +126,7 @@ def normalize_tar_info(info: tarfile.TarInfo) -> tarfile.TarInfo:
     info.uname = "root"
     info.gname = "root"
     info.mtime = 0
+    info.pax_headers = {}
     return info
 
 
@@ -53,6 +134,7 @@ def add_file(archive: tarfile.TarFile, source: Path, destination: Path) -> None:
     info = normalize_tar_info(
         archive.gettarinfo(str(source), arcname=destination.as_posix())
     )
+    info.mode = 0o755 if destination.as_posix() in EXECUTABLE_PAYLOAD_FILES else 0o644
     with source.open("rb") as source_file:
         archive.addfile(info, source_file)
 
@@ -71,9 +153,28 @@ def build_package(
     output: Path,
     repository: Path,
     target: str,
+    mode: str,
+    manifest: dict[str, object],
+    package_schema: dict[str, object],
     manifest_bytes: bytes,
     image_archive: Path | None,
 ) -> None:
+    manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
+    package = {
+        "schemaVersion": 1,
+        "version": manifest["version"],
+        "target": target,
+        "mode": mode,
+        "platform": manifest["targets"][target]["platform"],
+        "manifestSha256": manifest_digest,
+    }
+    if image_archive is not None:
+        package["imageArchive"] = f"images/{target}-images.tar"
+    Draft202012Validator(package_schema).validate(package)
+    package_bytes = (
+        json.dumps(package, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode()
+
     with (
         output.open("wb") as raw_output,
         gzip.GzipFile(
@@ -83,11 +184,16 @@ def build_package(
             fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT
         ) as archive,
     ):
+        add_bytes(archive, package_bytes, "release-package.json")
         add_bytes(archive, manifest_bytes, "release-manifest.json")
-        for source, destination in payload_files(repository, target):
+        for source, destination in payload_files(repository, target, mode, manifest):
             add_file(archive, source, destination)
         if image_archive is not None:
-            add_file(archive, image_archive, Path("images") / image_archive.name)
+            add_file(
+                archive,
+                image_archive,
+                Path("images") / f"{target}-images.tar",
+            )
 
 
 def sha256(path: Path) -> str:
@@ -100,16 +206,29 @@ def sha256(path: Path) -> str:
 
 def build_assets(args: argparse.Namespace) -> list[Path]:
     repository = Path(__file__).resolve().parents[1]
-    manifest = load_manifest(repository, args.manifest.resolve(), args.version)
-    image_archives = {
-        "edge": args.edge_image_archive.resolve(),
-        "server": args.server_image_archive.resolve(),
+    manifest = load_manifest(
+        repository,
+        args.manifest.resolve(),
+        args.version,
+        require_components=True,
+    )
+    package_schema = json.loads(
+        (repository / "release" / "package.schema.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(package_schema)
+    image_archive_inputs = {
+        "edge": args.edge_image_archive,
+        "server": args.server_image_archive,
     }
-    for target, image_archive in image_archives.items():
-        if not image_archive.is_file():
+    for target, image_archive in image_archive_inputs.items():
+        if image_archive.is_symlink() or not image_archive.is_file():
             raise FileNotFoundError(
                 f"{target} image archive not found: {image_archive}"
             )
+    image_archives = {
+        target: image_archive.resolve()
+        for target, image_archive in image_archive_inputs.items()
+    }
 
     output_directory = args.output.resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -126,7 +245,7 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
         raise FileExistsError(f"release output already exists: {existing[0]}")
 
     manifest_bytes = (
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode()
     with tempfile.TemporaryDirectory(
         prefix="release-", dir=output_directory
@@ -136,6 +255,9 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
             temporary_directory / names["edge-online"],
             repository,
             "edge",
+            "online",
+            manifest,
+            package_schema,
             manifest_bytes,
             None,
         )
@@ -143,6 +265,9 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
             temporary_directory / names["server-online"],
             repository,
             "server",
+            "online",
+            manifest,
+            package_schema,
             manifest_bytes,
             None,
         )
@@ -150,6 +275,9 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
             temporary_directory / names["edge-offline"],
             repository,
             "edge",
+            "offline",
+            manifest,
+            package_schema,
             manifest_bytes,
             image_archives["edge"],
         )
@@ -157,6 +285,9 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
             temporary_directory / names["server-offline"],
             repository,
             "server",
+            "offline",
+            manifest,
+            package_schema,
             manifest_bytes,
             image_archives["server"],
         )

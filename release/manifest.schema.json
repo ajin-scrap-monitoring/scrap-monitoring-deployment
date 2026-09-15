@@ -39,18 +39,94 @@
       "additionalProperties": false,
       "required": [
         "name",
-        "image"
+        "sourceRepository",
+        "sourceRevision",
+        "version",
+        "image",
+        "packageVisibility",
+        "pullAuthentication",
+        "notices"
       ],
       "properties": {
         "name": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "sourceRepository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/ajin-scrap-monitoring/[a-z0-9][a-z0-9._-]*$"
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
         },
         "image": {
           "type": "string",
-          "pattern": "^ghcr\\.io/[a-z0-9._-]+/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$"
+          "pattern": "^ghcr\\.io/ajin-scrap-monitoring/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+        },
+        "packageVisibility": {
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "pullAuthentication": {
+          "enum": [
+            "none",
+            "ghcr-read-token"
+          ]
+        },
+        "privateReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "notices": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^notices/[A-Za-z0-9][A-Za-z0-9._/-]*\\.md$"
+          },
+          "uniqueItems": true
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "packageVisibility": {
+                "const": "private"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "privateReason"
+            ],
+            "properties": {
+              "pullAuthentication": {
+                "const": "ghcr-read-token"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "privateReason"
+              ]
+            },
+            "properties": {
+              "pullAuthentication": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
     },
     "edgeTarget": {
       "type": "object",
@@ -65,6 +141,7 @@
         },
         "components": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/component"
           }
@@ -84,6 +161,7 @@
         },
         "components": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/component"
           }
