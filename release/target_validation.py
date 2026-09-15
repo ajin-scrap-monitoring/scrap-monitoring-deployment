@@ -8,9 +8,19 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .release_manifest import release_variables
+    from .release_manifest import (
+        SCENARIOS,
+        TARGETS,
+        release_variables,
+        scenario_components,
+    )
 except ImportError:
-    from release_manifest import release_variables
+    from release_manifest import (
+        SCENARIOS,
+        TARGETS,
+        release_variables,
+        scenario_components,
+    )
 
 ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 GENERATED_ENVIRONMENT = {
@@ -68,33 +78,39 @@ def compose_model(
     return model
 
 
-def target_services(model: dict[str, Any], target: str) -> dict[str, dict[str, Any]]:
+def target_services(
+    model: dict[str, Any], target: str, scenario: str
+) -> dict[str, dict[str, Any]]:
     services = model.get("services")
     if not isinstance(services, dict) or not services:
-        raise ValueError(f"Compose target has no services: {target}")
+        raise ValueError(f"Compose target has no services: {target} {scenario}")
     if not all(
         isinstance(name, str) and isinstance(value, dict)
         for name, value in services.items()
     ):
-        raise TypeError(f"Compose target has an invalid service: {target}")
+        raise TypeError(f"Compose target has an invalid service: {target} {scenario}")
     return services
 
 
-def validate_target(repository: Path, manifest: dict[str, Any], target: str) -> None:
-    project = repository / "targets" / target
+def validate_target(
+    repository: Path, manifest: dict[str, Any], target: str, scenario: str
+) -> None:
+    project = repository / "targets" / target / scenario
     environment = read_example_environment(project / ".env.example")
-    variables = release_variables(manifest, target)
+    variables = release_variables(manifest, target, scenario)
     environment.update(variables)
     environment.update(GENERATED_ENVIRONMENT[target])
 
     unresolved = target_services(
-        compose_model(project, environment, interpolate=False), target
+        compose_model(project, environment, interpolate=False), target, scenario
     )
     resolved = target_services(
-        compose_model(project, environment, interpolate=True), target
+        compose_model(project, environment, interpolate=True), target, scenario
     )
     if set(unresolved) != set(resolved):
-        raise ValueError(f"Compose service set changed after interpolation: {target}")
+        raise ValueError(
+            f"Compose service set changed after interpolation: {target} {scenario}"
+        )
 
     expected_bindings = {
         f"${{{name}}}": value
@@ -122,15 +138,20 @@ def validate_target(repository: Path, manifest: dict[str, Any], target: str) -> 
     missing_bindings = sorted(set(expected_bindings) - used_bindings)
     if missing_bindings:
         raise ValueError(
-            f"Manifest image is not used by Compose: {target}: {missing_bindings[0]}"
+            "Manifest image is not used by Compose: "
+            f"{target} {scenario}: {missing_bindings[0]}"
         )
     expected_images = {
-        component["image"] for component in manifest["targets"][target]["components"]
+        component["image"]
+        for component in scenario_components(manifest, target, scenario)
     }
     if resolved_images != expected_images:
-        raise ValueError(f"Compose image set does not match the manifest: {target}")
+        raise ValueError(
+            f"Compose image set does not match the manifest: {target} {scenario}"
+        )
 
 
 def validate_targets(repository: Path, manifest: dict[str, Any]) -> None:
-    for target in ("edge", "server"):
-        validate_target(repository, manifest, target)
+    for target in TARGETS:
+        for scenario in SCENARIOS:
+            validate_target(repository, manifest, target, scenario)

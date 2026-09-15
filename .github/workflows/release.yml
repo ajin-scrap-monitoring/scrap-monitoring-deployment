@@ -88,8 +88,7 @@ jobs:
           .venv/bin/python release/build-assets \
             --version "${RELEASE_TAG}" \
             --manifest "${RELEASE_MANIFEST}" \
-            --edge-image-archive build/images/edge-images.tar \
-            --server-image-archive build/images/server-images.tar \
+            --image-directory build/images \
             --output dist
           .venv/bin/python release/verify-assets \
             --version "${RELEASE_TAG}" \
@@ -102,10 +101,7 @@ jobs:
           name: release-assets-${{ github.ref_name }}
           path: |
             dist/SHA256SUMS
-            dist/scrap-monitoring-edge-${{ github.ref_name }}-offline.tar.gz
-            dist/scrap-monitoring-edge-${{ github.ref_name }}-online.tar.gz
-            dist/scrap-monitoring-server-${{ github.ref_name }}-offline.tar.gz
-            dist/scrap-monitoring-server-${{ github.ref_name }}-online.tar.gz
+            dist/scrap-monitoring-*.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -130,12 +126,17 @@ jobs:
 
       - name: Validate downloaded assets
         run: |
-          expected_assets="$(printf '%s\n' \
-            "SHA256SUMS" \
-            "scrap-monitoring-edge-${RELEASE_TAG}-offline.tar.gz" \
-            "scrap-monitoring-edge-${RELEASE_TAG}-online.tar.gz" \
-            "scrap-monitoring-server-${RELEASE_TAG}-offline.tar.gz" \
-            "scrap-monitoring-server-${RELEASE_TAG}-online.tar.gz" | sort)"
+          expected_assets="$(
+            printf '%s\n' "SHA256SUMS"
+            for target in edge server; do
+              for scenario in hardware simulation; do
+                for mode in online offline; do
+                  printf 'scrap-monitoring-%s-%s-%s-%s.tar.gz\n' \
+                    "${target}" "${scenario}" "${RELEASE_TAG}" "${mode}"
+                done
+              done
+            done | sort
+          )"
           actual_assets="$(find dist -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
           if [[ "${actual_assets}" != "${expected_assets}" ]]; then
             printf '%s\n' "Downloaded release asset set does not match." >&2
@@ -163,12 +164,17 @@ jobs:
 
           gh release upload "${RELEASE_TAG}" dist/* --clobber
 
-          expected_assets="$(printf '%s\n' \
-            "SHA256SUMS" \
-            "scrap-monitoring-edge-${RELEASE_TAG}-offline.tar.gz" \
-            "scrap-monitoring-edge-${RELEASE_TAG}-online.tar.gz" \
-            "scrap-monitoring-server-${RELEASE_TAG}-offline.tar.gz" \
-            "scrap-monitoring-server-${RELEASE_TAG}-online.tar.gz" | sort)"
+          expected_assets="$(
+            printf '%s\n' "SHA256SUMS"
+            for target in edge server; do
+              for scenario in hardware simulation; do
+                for mode in online offline; do
+                  printf 'scrap-monitoring-%s-%s-%s-%s.tar.gz\n' \
+                    "${target}" "${scenario}" "${RELEASE_TAG}" "${mode}"
+                done
+              done
+            done | sort
+          )"
           actual_assets="$(gh release view "${RELEASE_TAG}" --json assets \
             --jq '[.assets[].name] | sort | .[]')"
           if [[ "${actual_assets}" != "${expected_assets}" ]]; then

@@ -28,6 +28,7 @@ TARGET_PLATFORMS = {
     "edge": "linux/arm64",
     "server": "linux/amd64",
 }
+SCENARIOS = ("hardware", "simulation")
 COMMON_MEMBERS = {
     "README.md",
     "requirements-tooling.txt",
@@ -69,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify a release package.")
     parser.add_argument("--version", required=True)
     parser.add_argument("--target", choices=sorted(TARGET_PLATFORMS), required=True)
+    parser.add_argument("--scenario", choices=SCENARIOS, required=True)
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--checksums", type=Path, required=True)
     return parser.parse_args()
@@ -186,11 +188,13 @@ def validate_package_descriptor(
     package: dict[str, Any],
     version: str,
     target: str,
+    scenario: str,
 ) -> str:
     required = {
         "schemaVersion",
         "version",
         "target",
+        "scenario",
         "mode",
         "platform",
         "manifestSha256",
@@ -199,10 +203,16 @@ def validate_package_descriptor(
     expected = required | ({"imageArchive"} if mode == "offline" else set())
     if set(package) != expected:
         raise ValueError("package descriptor fields do not match the schema")
-    if type(package["schemaVersion"]) is not int or package["schemaVersion"] != 1:
+    if type(package["schemaVersion"]) is not int or package["schemaVersion"] != 2:
         raise ValueError("unsupported package schema version")
-    if package["version"] != version or package["target"] != target:
-        raise ValueError("package version or target does not match the request")
+    if (
+        package["version"] != version
+        or package["target"] != target
+        or package["scenario"] != scenario
+    ):
+        raise ValueError(
+            "package version, target or scenario does not match the request"
+        )
     if mode not in MODE_MEMBERS:
         raise ValueError("invalid package mode")
     if package["platform"] != TARGET_PLATFORMS[target]:
@@ -212,7 +222,7 @@ def validate_package_descriptor(
     ):
         raise ValueError("invalid manifest digest")
     if mode == "offline":
-        expected_archive = f"images/{target}-images.tar"
+        expected_archive = f"images/{target}-{scenario}-images.tar"
         if package["imageArchive"] != expected_archive:
             raise ValueError("image archive does not match the target")
     return mode
@@ -286,12 +296,14 @@ def validate_component(component: Any) -> tuple[str, str, set[str]]:
     return name, image, set(notices)
 
 
-def validate_manifest(manifest: dict[str, Any], version: str) -> set[str]:
+def validate_manifest(
+    manifest: dict[str, Any], version: str
+) -> dict[tuple[str, str], set[str]]:
     if set(manifest) != {"schemaVersion", "version", "targets"}:
         raise ValueError("manifest fields do not match the schema")
     if (
         type(manifest["schemaVersion"]) is not int
-        or manifest["schemaVersion"] != 1
+        or manifest["schemaVersion"] != 2
         or manifest["version"] != version
     ):
         raise ValueError("manifest schema or version does not match the request")
@@ -301,12 +313,13 @@ def validate_manifest(manifest: dict[str, Any], version: str) -> set[str]:
 
     names: set[str] = set()
     images: set[str] = set()
-    notices: set[str] = set()
+    scenario_notices: dict[tuple[str, str], set[str]] = {}
     for target, platform_name in TARGET_PLATFORMS.items():
         target_manifest = targets[target]
         if not isinstance(target_manifest, dict) or set(target_manifest) != {
             "platform",
             "components",
+            "scenarios",
         }:
             raise ValueError(f"invalid target manifest: {target}")
         if target_manifest["platform"] != platform_name:
@@ -314,21 +327,54 @@ def validate_manifest(manifest: dict[str, Any], version: str) -> set[str]:
         components = target_manifest["components"]
         if not isinstance(components, list) or not components:
             raise ValueError(f"component list is empty: {target}")
+        notices_by_component: dict[str, set[str]] = {}
+        component_names: set[str] = set()
         for component in components:
-            name, image, component_notices = validate_component(component)
+            name, image, notices = validate_component(component)
             if name in names:
                 raise ValueError(f"duplicate component name: {name}")
             if image in images:
                 raise ValueError(f"duplicate component image: {image}")
             names.add(name)
             images.add(image)
-            notices.update(component_notices)
-    return notices
+            component_names.add(name)
+            notices_by_component[name] = notices
+
+        scenarios = target_manifest["scenarios"]
+        if not isinstance(scenarios, dict) or set(scenarios) != set(SCENARIOS):
+            raise ValueError(f"invalid target scenarios: {target}")
+        referenced: set[str] = set()
+        for scenario in SCENARIOS:
+            selected = scenarios[scenario]
+            if not isinstance(selected, list) or not selected:
+                raise ValueError(
+                    f"scenario component list is empty: {target} {scenario}"
+                )
+            if len(selected) != len(set(selected)):
+                raise ValueError(f"duplicate scenario component: {target} {scenario}")
+            notices: set[str] = set()
+            for name in selected:
+                if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
+                    raise ValueError(f"invalid scenario component: {target} {scenario}")
+                if name not in component_names:
+                    raise ValueError(
+                        f"scenario component is not defined: {target} {scenario}: {name}"
+                    )
+                referenced.add(name)
+                notices.update(notices_by_component[name])
+            scenario_notices[target, scenario] = notices
+        unreferenced = component_names - referenced
+        if unreferenced:
+            raise ValueError(
+                f"component is not referenced by a scenario: {target}: {min(unreferenced)}"
+            )
+    return scenario_notices
 
 
 def validate_payload(
     members: set[str],
     target: str,
+    scenario: str,
     mode: str,
     notices: set[str],
 ) -> None:
@@ -337,7 +383,7 @@ def validate_payload(
     if target == "server":
         required.add("pki/validate-ca-state")
     if mode == "offline":
-        required.add(f"images/{target}-images.tar")
+        required.add(f"images/{target}-{scenario}-images.tar")
     missing = sorted(required - members)
     if missing:
         raise ValueError(f"required package member is missing: {missing[0]}")
@@ -368,15 +414,23 @@ def verify_release(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         manifest, manifest_bytes = read_json_member(
             archive, members, "release-manifest.json"
         )
-        mode = validate_package_descriptor(package, args.version, args.target)
-        expected_name = f"scrap-monitoring-{args.target}-{args.version}-{mode}.tar.gz"
+        mode = validate_package_descriptor(
+            package, args.version, args.target, args.scenario
+        )
+        expected_name = f"scrap-monitoring-{args.target}-{args.scenario}-{args.version}-{mode}.tar.gz"
         if args.package.name != expected_name:
             raise ValueError("package filename does not match its descriptor")
         actual_manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
         if not hmac.compare_digest(actual_manifest_digest, package["manifestSha256"]):
             raise ValueError("manifest digest does not match the package descriptor")
-        notices = validate_manifest(manifest, args.version)
-        validate_payload(set(members), args.target, mode, notices)
+        scenario_notices = validate_manifest(manifest, args.version)
+        validate_payload(
+            set(members),
+            args.target,
+            args.scenario,
+            mode,
+            scenario_notices[args.target, args.scenario],
+        )
     return mode, manifest
 
 

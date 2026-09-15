@@ -21,10 +21,13 @@ fi
 
 mkdir -p "${output_directory}"
 for target in edge server; do
-  if [[ -e "${output_directory}/${target}-images.tar" ]]; then
-    printf '%s\n' "Image archive already exists: ${output_directory}/${target}-images.tar" >&2
-    exit 1
-  fi
+  for scenario in hardware simulation; do
+    archive="${output_directory}/${target}-${scenario}-images.tar"
+    if [[ -e "${archive}" ]]; then
+      printf '%s\n' "Image archive already exists: ${archive}" >&2
+      exit 1
+    fi
+  done
 done
 
 temporary_directory="$(mktemp -d "${output_directory}/.image-archives.XXXXXX")"
@@ -35,25 +38,42 @@ trap cleanup EXIT
 
 for target in edge server; do
   platform="$(jq --exit-status --raw-output ".targets.${target}.platform" "${manifest_path}")"
-  images=()
-  while IFS= read -r image; do
-    if [[ -n "${image}" ]]; then
-      images+=("${image}")
+  for scenario in hardware simulation; do
+    images=()
+    while IFS= read -r image; do
+      if [[ -n "${image}" ]]; then
+        images+=("${image}")
+      fi
+    done < <(
+      jq --exit-status --raw-output \
+        --arg target "${target}" \
+        --arg scenario "${scenario}" '
+          .targets[$target] as $target_manifest
+          | $target_manifest.scenarios[$scenario][] as $name
+          | $target_manifest.components[]
+          | select(.name == $name)
+          | .image
+        ' "${manifest_path}"
+    )
+
+    if [[ "${#images[@]}" -eq 0 ]]; then
+      printf '%s\n' "Component list is empty: ${target} ${scenario}" >&2
+      exit 1
     fi
-  done < <(jq --exit-status --raw-output ".targets.${target}.components[].image" "${manifest_path}")
 
-  if [[ "${#images[@]}" -eq 0 ]]; then
-    printf '%s\n' "Component list is empty: ${target}" >&2
-    exit 1
-  fi
-
-  for image in "${images[@]}"; do
-    docker pull --platform "${platform}" "${image}"
+    for image in "${images[@]}"; do
+      docker pull --platform "${platform}" "${image}"
+    done
+    docker image save \
+      --output "${temporary_directory}/${target}-${scenario}-images.tar" \
+      "${images[@]}"
   done
-  docker image save \
-    --output "${temporary_directory}/${target}-images.tar" \
-    "${images[@]}"
 done
 
-mv "${temporary_directory}/edge-images.tar" "${output_directory}/edge-images.tar"
-mv "${temporary_directory}/server-images.tar" "${output_directory}/server-images.tar"
+for target in edge server; do
+  for scenario in hardware simulation; do
+    mv \
+      "${temporary_directory}/${target}-${scenario}-images.tar" \
+      "${output_directory}/${target}-${scenario}-images.tar"
+  done
+done

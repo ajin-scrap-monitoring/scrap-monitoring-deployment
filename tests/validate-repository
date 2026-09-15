@@ -34,8 +34,11 @@ jq empty package.json package-lock.json
   tests
 go -C tools mod verify
 go -C tools tool actionlint "${repository}"/.github/workflows/*.yml
-docker compose -f targets/edge/compose.yaml config --quiet
-docker compose -f targets/server/compose.yaml config --quiet
+for target in edge server; do
+  for scenario in hardware simulation; do
+    docker compose -f "targets/${target}/${scenario}/compose.yaml" config --quiet
+  done
+done
 shellcheck \
   delivery/apply-release \
   delivery/generate-auth-secret \

@@ -10,7 +10,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "version": {
       "type": "string",
@@ -133,7 +133,8 @@
       "additionalProperties": false,
       "required": [
         "platform",
-        "components"
+        "components",
+        "scenarios"
       ],
       "properties": {
         "platform": {
@@ -141,10 +142,14 @@
         },
         "components": {
           "type": "array",
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/component"
           }
+        },
+        "scenarios": {
+          "$ref": "#/$defs/scenarios"
         }
       }
     },
@@ -153,7 +158,8 @@
       "additionalProperties": false,
       "required": [
         "platform",
-        "components"
+        "components",
+        "scenarios"
       ],
       "properties": {
         "platform": {
@@ -161,11 +167,40 @@
         },
         "components": {
           "type": "array",
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/component"
           }
+        },
+        "scenarios": {
+          "$ref": "#/$defs/scenarios"
         }
+      }
+    },
+    "scenarios": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardware",
+        "simulation"
+      ],
+      "properties": {
+        "hardware": {
+          "$ref": "#/$defs/componentNames"
+        },
+        "simulation": {
+          "$ref": "#/$defs/componentNames"
+        }
+      }
+    },
+    "componentNames": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
       }
     }
   }

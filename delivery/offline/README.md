@@ -8,7 +8,8 @@ image digest와 platform을 다시 확인한다.
 delivery/offline/import-bundle \
   --version v1.2.3 \
   --target edge \
-  --bundle /media/release/scrap-monitoring-edge-v1.2.3-offline.tar.gz \
+  --scenario hardware \
+  --bundle /media/release/scrap-monitoring-edge-hardware-v1.2.3-offline.tar.gz \
   --checksums /media/release/SHA256SUMS
 ```
 
@@ -21,7 +22,8 @@ Image import가 끝나면 같은 Bundle과 checksum을 적용한다.
 delivery/apply-release \
   --version v1.2.3 \
   --target edge \
-  --package /media/release/scrap-monitoring-edge-v1.2.3-offline.tar.gz \
+  --scenario hardware \
+  --package /media/release/scrap-monitoring-edge-hardware-v1.2.3-offline.tar.gz \
   --checksums /media/release/SHA256SUMS \
   --mode offline
 ```

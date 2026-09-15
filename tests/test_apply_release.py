@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from delivery.release_applier import CertificateSnapshot, apply_release
-from tests.test_release import BUILD_ASSETS, manifest_with_components
+from tests.test_release import BUILD_ASSETS, image_directory, manifest_with_components
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -21,12 +21,9 @@ def build_assets(temporary_path: Path, version: str) -> Path:
     manifest = manifest_with_components()
     manifest["version"] = version
     manifest_path = temporary_path / f"{version}.json"
-    edge_images = temporary_path / f"{version}-edge-images.tar"
-    server_images = temporary_path / f"{version}-server-images.tar"
+    images = image_directory(temporary_path)
     output = temporary_path / f"{version}-assets"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    edge_images.write_bytes(b"edge image archive fixture\n")
-    server_images.write_bytes(b"server image archive fixture\n")
     subprocess.run(
         [
             sys.executable,
@@ -35,10 +32,8 @@ def build_assets(temporary_path: Path, version: str) -> Path:
             version,
             "--manifest",
             str(manifest_path),
-            "--edge-image-archive",
-            str(edge_images),
-            "--server-image-archive",
-            str(server_images),
+            "--image-directory",
+            str(images),
             "--output",
             str(output),
         ],
@@ -88,7 +83,9 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
     environment_file = host_root / "etc" / "scrap-monitoring" / "edge.env"
     environment_file.parent.mkdir(parents=True)
     environment_file.write_text(
-        (REPOSITORY / "targets" / "edge" / ".env.example").read_text(encoding="utf-8"),
+        (REPOSITORY / "targets" / "edge" / "hardware" / ".env.example").read_text(
+            encoding="utf-8"
+        ),
         encoding="utf-8",
     )
     environment_file.chmod(0o640)
@@ -222,8 +219,10 @@ def apply_arguments(
     return argparse.Namespace(
         version=version,
         target="edge",
+        scenario="hardware",
         package=(
-            assets / f"scrap-monitoring-edge-{version}-{selected_package_mode}.tar.gz"
+            assets
+            / f"scrap-monitoring-edge-hardware-{version}-{selected_package_mode}.tar.gz"
         ),
         checksums=assets / "SHA256SUMS",
         mode=mode,
@@ -282,7 +281,7 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("success", state["result"])
-        self.assertEqual("versions/v0.0.1", state["current"])
+        self.assertEqual("versions/v0.0.1-hardware", state["current"])
         systemctl_log = (self.temporary_path / "systemctl.log").read_text(
             encoding="utf-8"
         )
@@ -309,6 +308,23 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("failed", state["result"])
+
+    def test_rejects_environment_scenario_mismatch_without_switching(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        args.scenario = "simulation"
+        args.package = assets / "scrap-monitoring-edge-simulation-v0.0.1-online.tar.gz"
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
 
     def test_applies_offline_release_without_pulling_images(self) -> None:
         assets = build_assets(self.temporary_path, "v0.0.1")
@@ -352,7 +368,7 @@ class ApplyReleaseTest(unittest.TestCase):
 
         deployment = self.temporary_path / "deployment"
         self.assertEqual(
-            "v0.0.1",
+            "v0.0.1-hardware",
             (deployment / "current").resolve().name,
         )
         self.assertFalse((deployment / "previous").exists())
@@ -360,7 +376,7 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("failed", state["result"])
-        self.assertEqual("versions/v0.0.1", state["current"])
+        self.assertEqual("versions/v0.0.1-hardware", state["current"])
 
     def test_rejects_modified_existing_version(self) -> None:
         assets = build_assets(self.temporary_path, "v0.0.1")
@@ -476,7 +492,7 @@ class ApplyReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not healthy"):
             self.apply(second_args)
 
-        self.assertEqual("v0.0.1", (deployment / "current").resolve().name)
+        self.assertEqual("v0.0.1-hardware", (deployment / "current").resolve().name)
         self.assertEqual(original_generated, generated.read_bytes())
 
     def test_certificate_snapshot_restores_all_tls_files(self) -> None:

@@ -1,14 +1,52 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "version": "v0.0.1",
   "targets": {
     "edge": {
       "platform": "linux/arm64",
-      "components": []
+      "components": [
+        {
+          "name": "example-edge-component",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/example-edge-component",
+          "sourceRevision": "0000000000000000000000000000000000000000",
+          "version": "v0.0.1",
+          "image": "ghcr.io/ajin-scrap-monitoring/example-edge-component@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        }
+      ],
+      "scenarios": {
+        "hardware": [
+          "example-edge-component"
+        ],
+        "simulation": [
+          "example-edge-component"
+        ]
+      }
     },
     "server": {
       "platform": "linux/amd64",
-      "components": []
+      "components": [
+        {
+          "name": "example-server-component",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/example-server-component",
+          "sourceRevision": "0000000000000000000000000000000000000000",
+          "version": "v0.0.1",
+          "image": "ghcr.io/ajin-scrap-monitoring/example-server-component@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        }
+      ],
+      "scenarios": {
+        "hardware": [
+          "example-server-component"
+        ],
+        "simulation": [
+          "example-server-component"
+        ]
+      }
     }
   }
 }
