@@ -3,11 +3,13 @@
 ## 현재 상태
 
 GitHub 원격 Repository, 기본 설정, ruleset 4개와 CodeQL Default setup이 구성되어 있다.
-Repository에는 문서, 구현 대상 파일 뼈대, CI와 Release workflow가 구성되어 있다. CI는 Markdown,
-YAML, GitHub Actions, JSON과 JSON Schema, Docker Compose, Python, Shell, systemd, Release asset,
-checksum과 Public 범위를 검사한다. Release workflow는 보호된 version tag, 원격 `main`, version
-manifest와 대상별 component를 검증하고 Public GHCR image 취득, asset 생성, Draft Release asset
-집합 확인과 게시를 수행한다.
+Repository에는 배포 도구, 대상별 목표 상태, CI와 Release workflow가 구성되어 있다. CI는 고정된
+GitHub Action commit과 Python, npm 및 Go lock을 사용하여 Markdown, YAML, GitHub Actions, JSON과
+JSON Schema, Docker Compose, Python, Shell, systemd, Release asset, checksum과 Public 범위를
+검사하고 High 이상 Node.js 의존성 취약점을 거부한다. Release workflow는 보호된 version tag,
+원격 `main`, version manifest, 대상별 component와
+Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계약에 맞는 GHCR image 취득, asset 생성과
+독립 검증을 수행하고 쓰기 권한을 가진 publish job은 검증된 artifact만 Draft Release로 게시한다.
 
 환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
 대상별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
@@ -134,6 +136,8 @@ scrap-monitoring-deployment/
 |       `-- release.yml
 |-- .markdownlint-cli2.jsonc
 |-- .yamllint.yml
+|-- package-lock.json
+|-- package.json
 |-- delivery/
 |   |-- offline/
 |   |   |-- bundle_importer.py
@@ -175,7 +179,12 @@ scrap-monitoring-deployment/
 |   |-- package.schema.json
 |   |-- pull-images
 |   |-- release_manifest.py
-|   `-- validate-manifest
+|   |-- target_validation.py
+|   |-- validate-manifest
+|   |-- validate-targets
+|   `-- verify-assets
+|-- requirements-tooling.in
+|-- requirements-tooling.txt
 |-- targets/
 |   |-- edge/
 |   |   |-- config/
@@ -204,12 +213,17 @@ scrap-monitoring-deployment/
 |   |-- test_pki.py
 |   |-- test_public_content.py
 |   |-- test_release.py
+|   |-- test_release_targets.py
 |   |-- test_repository.py
+|   |-- test_workflows.py
 |   |-- validate-repository
 |   `-- validate-test-host
+|-- tools/
+|   |-- go.mod
+|   |-- go.sum
+|   `-- install-validation
 |-- AGENTS.md
 |-- .gitignore
-|-- requirements-tooling.txt
 `-- README.md
 ```
 
@@ -279,21 +293,36 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 
 | 도구 | 버전 | 목적 | 출처 | license |
 | --- | --- | --- | --- | --- |
-| `actions/checkout` | `v6` | GitHub Actions의 Repository checkout | [`actions/checkout`](https://github.com/actions/checkout) | MIT |
+| `actions/checkout` | `v7.0.1` | GitHub Actions의 Repository checkout | [`actions/checkout`](https://github.com/actions/checkout) | MIT |
+| `actions/setup-node` | `v7.0.0` | 고정 Node.js 설치와 npm cache | [`actions/setup-node`](https://github.com/actions/setup-node) | MIT |
+| `actions/setup-go` | `v7.0.0` | 고정 Go 설치와 module cache | [`actions/setup-go`](https://github.com/actions/setup-go) | MIT |
+| `astral-sh/setup-uv` | `v10.1.0` | 고정 uv 설치 | [`astral-sh/setup-uv`](https://github.com/astral-sh/setup-uv) | MIT |
+| `docker/setup-compose-action` | `v2.3.0` | 고정 Docker Compose 설치 | [`docker/setup-compose-action`](https://github.com/docker/setup-compose-action) | Apache-2.0 |
+| `actions/upload-artifact` | `v7.0.1` | 검증된 Release asset 전달 | [`actions/upload-artifact`](https://github.com/actions/upload-artifact) | MIT |
+| `actions/download-artifact` | `v8.0.1` | 검증된 Release asset 수신 | [`actions/download-artifact`](https://github.com/actions/download-artifact) | MIT |
 | Actionlint | `1.7.12` | GitHub Actions workflow 정적 검사 | [`rhysd/actionlint`](https://github.com/rhysd/actionlint) | MIT |
 | Docker Engine | GitHub-hosted runner 제공 version | 대상별 GHCR image pull과 archive 생성 | [Moby](https://github.com/moby/moby) | Apache-2.0 |
-| Go | GitHub-hosted runner 제공 version | Actionlint 실행 | [Go](https://go.dev/) | BSD-3-Clause |
-| Node.js | GitHub-hosted runner 제공 version | Markdown 검사 도구 실행 | [Node.js](https://nodejs.org/) | MIT |
-| Python | `3.10` 이상 | Release asset 생성과 Repository 테스트 | [Python](https://www.python.org/) | PSF-2.0 |
+| Go | `1.27.1` | Actionlint 실행과 Go module 검증 | [Go](https://go.dev/) | BSD-3-Clause |
+| Node.js | `24.21.0` | Markdown 검사 도구 실행 | [Node.js](https://nodejs.org/) | MIT |
+| npm | `11.19.0` | Node.js 의존성 lock 설치 | [npm CLI](https://github.com/npm/cli) | Artistic-2.0 |
+| Python | `3.10.21`, `3.13.15` | 최소 지원 version과 기본 CI의 Release asset 생성 및 테스트 | [Python](https://www.python.org/) | PSF-2.0 |
+| uv | `0.12.15` | Python hash lock 일치 검증 | [uv](https://github.com/astral-sh/uv) | Apache-2.0 OR MIT |
 | `jsonschema` | `4.26.0` | Release manifest JSON Schema 검증 | [PyPI](https://pypi.org/project/jsonschema/) | MIT |
+| PyYAML | `6.0.3` | GitHub Actions workflow 정책 테스트 | [PyPI](https://pypi.org/project/PyYAML/) | MIT |
 | Ruff | `0.16.4` | Python lint와 format 검사 | [PyPI](https://pypi.org/project/ruff/) | MIT |
 | `markdownlint-cli2` | `0.23.2` | Markdown 검사 | [npm](https://www.npmjs.com/package/markdownlint-cli2) | MIT |
+| `smol-toml` | `1.7.1` | Markdown 설정 parsing용 보안 고정 전이 의존성 | [npm](https://www.npmjs.com/package/smol-toml) | BSD-3-Clause |
 | `yamllint` | `1.38.0` | YAML 검사 | [PyPI](https://pypi.org/project/yamllint/) | GPL-3.0 |
 | `jq` | GitHub-hosted runner 제공 version | JSON 문법 검사 | [jqlang](https://jqlang.org/) | MIT |
-| Docker Compose | GitHub-hosted runner 제공 version | Compose schema 검사 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
+| Docker Compose | `5.5.1` | Compose schema와 Manifest image 연결 검사 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
 | GitHub CLI | GitHub-hosted runner 제공 version | Draft Release 생성, asset 첨부와 게시 | [GitHub CLI](https://github.com/cli/cli) | MIT |
 | ShellCheck | GitHub-hosted runner 제공 version | Bash 정적 검사 | [ShellCheck](https://github.com/koalaman/shellcheck) | GPL-3.0 |
 | `systemd-analyze` | GitHub-hosted runner 제공 version | systemd unit 검사 | [systemd](https://github.com/systemd/systemd) | LGPL-2.1-or-later |
+
+모든 외부 GitHub Action은 표의 version tag가 가리키는 full commit SHA로 고정한다. Python
+전이 의존성은 hash가 포함된 `requirements-tooling.txt`, Node.js 전이 의존성은
+`package-lock.json`, Actionlint 전이 의존성은 `tools/go.sum`으로 고정한다. `smol-toml`은
+`package.json` override로 `1.7.1`에 고정한다.
 
 ## 미확정 구현 결정
 

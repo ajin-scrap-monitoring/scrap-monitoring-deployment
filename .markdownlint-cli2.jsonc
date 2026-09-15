@@ -3,6 +3,7 @@
     "MD013": false
   },
   "ignores": [
-    ".venv/**"
+    ".venv/**",
+    "node_modules/**"
   ]
 }

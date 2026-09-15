@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import hmac
+import re
+import stat
+import subprocess
+from pathlib import Path
+
+CHECKSUM_LINE_PATTERN = re.compile(r"^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$")
+VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+MAX_CHECKSUM_SIZE = 1024 * 1024
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify a complete release asset set.")
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--directory", required=True, type=Path)
+    return parser.parse_args()
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def expected_packages(version: str) -> dict[str, tuple[str, str]]:
+    return {
+        f"scrap-monitoring-{target}-{version}-{mode}.tar.gz": (target, mode)
+        for target in ("edge", "server")
+        for mode in ("online", "offline")
+    }
+
+
+def verify_checksums(directory: Path, package_names: set[str]) -> None:
+    checksums = directory / "SHA256SUMS"
+    if checksums.stat().st_size > MAX_CHECKSUM_SIZE:
+        raise ValueError("checksum manifest is too large")
+    entries: dict[str, str] = {}
+    for line_number, line in enumerate(
+        checksums.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        match = CHECKSUM_LINE_PATTERN.fullmatch(line)
+        if match is None:
+            raise ValueError(f"invalid checksum line: {line_number}")
+        digest, name = match.groups()
+        if name in entries:
+            raise ValueError(f"duplicate checksum entry: {name}")
+        entries[name] = digest
+    if set(entries) != package_names:
+        raise ValueError("checksum asset set does not match the expected package set")
+    for name, expected_digest in entries.items():
+        if not hmac.compare_digest(sha256(directory / name), expected_digest):
+            raise ValueError(f"package checksum does not match: {name}")
+
+
+def verify_assets(repository: Path, version: str, directory: Path) -> None:
+    if not VERSION_PATTERN.fullmatch(version):
+        raise ValueError(f"invalid release version: {version}")
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError(f"release asset directory is missing or symbolic: {directory}")
+    packages = expected_packages(version)
+    expected_names = {*packages, "SHA256SUMS"}
+    actual_names = {path.name for path in directory.iterdir()}
+    if actual_names != expected_names:
+        raise ValueError("release asset set does not match the expected set")
+    for name in expected_names:
+        path = directory / name
+        if path.is_symlink() or not stat.S_ISREG(path.stat().st_mode):
+            raise ValueError(f"release asset is not a regular file: {name}")
+
+    verify_checksums(directory, set(packages))
+    for name, (target, _) in packages.items():
+        subprocess.run(
+            [
+                str(repository / "delivery" / "verify-release"),
+                "--version",
+                version,
+                "--target",
+                target,
+                "--package",
+                str(directory / name),
+                "--checksums",
+                str(directory / "SHA256SUMS"),
+            ],
+            check=True,
+        )
+
+
+def main() -> None:
+    args = parse_args()
+    repository = Path(__file__).resolve().parents[1]
+    verify_assets(repository, args.version, args.directory)
+
+
+if __name__ == "__main__":
+    main()

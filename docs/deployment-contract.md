@@ -64,6 +64,8 @@ Release 작업자는 다음 항목을 확정한다.
 
 Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release 생성을 중단한다. 하나의 대상에
 필요한 image가 누락되면 Online Package와 Offline Bundle을 게시하지 않는다.
+Release workflow는 Public Package만 허용한다. Private Package는 예외 승인, 읽기 전용 자격 증명과
+workflow 인증 입력이 모두 구성되기 전까지 게시 가능한 Manifest에서 거부한다.
 
 ### 대상 환경 계약
 
@@ -138,15 +140,18 @@ Package 생성기는 명시적 allowlist에 있는 일반 파일만 포함하고
 누락된 외부 고지를 거부한다. Archive의 경로 순서, 시간, 소유자와 file mode를
 정규화하여 같은 입력은 동일한 byte의 asset을 생성한다.
 
-Release 생성은 다음 순서를 제공한다.
+Release 생성은 다음 9단계를 제공한다.
 
 1. Release tag 형식과 tag commit의 원격 `main` 포함 여부를 확인한다.
-2. Manifest schema와 Manifest version의 tag 일치를 확인한다.
-3. Manifest가 참조한 모든 image를 digest와 대상 platform으로 검증한다.
-4. Edge와 Server의 image archive를 각각 생성한다.
-5. 같은 Manifest와 대상별 목표 상태를 사용하여 Online Package 2개와 Offline Bundle 2개를 생성한다.
-6. 생성한 4개 asset의 SHA-256 checksum manifest를 작성하고 다시 검증한다.
-7. 모든 asset이 준비된 뒤 하나의 GitHub Release에 첨부하여 게시한다.
+2. Manifest schema, Manifest version의 tag 일치와 대상별 component 존재를 확인한다.
+3. 대상별 Compose가 서비스를 가지며 각 service image가 Manifest에서 생성한 image 변수와 정확히
+   일치하는지 확인한다.
+4. Manifest가 참조한 모든 image를 digest와 대상 platform으로 검증한다.
+5. Edge와 Server의 image archive를 각각 생성한다.
+6. 같은 Manifest와 대상별 목표 상태를 사용하여 Online Package 2개와 Offline Bundle 2개를 생성한다.
+7. 생성한 4개 asset과 SHA-256 checksum manifest의 파일 집합 및 내용을 독립적으로 검증한다.
+8. 읽기 전용 build job이 검증한 asset을 GitHub Actions artifact로 전달한다.
+9. 쓰기 권한을 가진 publish job이 전체 asset을 Draft Release에 첨부하고 집합을 재검증한 뒤 게시한다.
 
 중간 산출물 일부만 첨부한 Release는 게시하지 않는다. Release 생성 실패 시 tag를 다른 commit으로
 이동하거나 기존 asset을 교체하지 않고 원인을 수정한 새 버전을 사용한다.
@@ -179,7 +184,7 @@ credential Bootstrap 또는 명시적인 rotation에서 token을 생성하고 �
 4. 운영자가 두 종류의 credential을 생성하고 Server와 해당 Edge에 설치하여 검증한다.
 5. 일반 배포가 기존 CA 상태를 검증하고 Server 인증서를 발급한 뒤 Docker Compose를 시작한다.
 
-후속 Release 배포는 5단계만 반복하고 기존 CA, token과 영속 데이터를 유지한다. Server 인증서의
+후속 Release 배포는 5번 단계만 반복하고 기존 CA, token과 영속 데이터를 유지한다. Server 인증서의
 갱신 시점이 되면 일반 배포 또는 인증서 갱신 timer가 같은 Server 인증서 발급 절차를 수행한다.
 Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리한 명시적 운영 작업이다.
 
@@ -251,8 +256,10 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | 실행 파일 | 입력 | 성공 조건 |
 | --- | --- | --- |
 | `release/validate-manifest` | 통합 버전과 version manifest | Schema, version과 대상별 component 존재 확인 |
+| `release/validate-targets` | 검증된 Manifest와 대상별 Compose | 서비스 존재와 Manifest image 변수의 완전한 일치 |
 | `release/pull-images` | 검증된 manifest와 출력 경로 | 대상 platform별 digest 고정 image archive 생성 |
 | `release/build-assets` | Manifest와 Edge 및 Server image archive | 대상별 package 4개와 checksum manifest 생성 |
+| `release/verify-assets` | 통합 버전과 asset 디렉토리 | Package 4개와 checksum의 정확한 집합 및 독립 검증 |
 
 ### Delivery
 
@@ -350,7 +357,8 @@ host 환경 파일에 둔다.
 Continuous Integration (CI) job `CI`는 모든 `main` 대상 Pull Request와 `main` Push에서 실행한다.
 Markdown, YAML, JSON,
 JSON Schema, Python, Shell, Docker Compose, systemd, Repository 구조, Public 범위, Release asset과
-checksum을 검사한다. `delivery/validate-environment`는 대상별 공개 schema와 실제 환경 파일의
+checksum 및 High 이상 Node.js 의존성 취약점을 검사한다. `delivery/validate-environment`는 대상별
+공개 schema와 실제 환경 파일의
 schema version, 누락 변수, 알 수 없는 변수와 빈 값을 검사하고 실제 값을 출력하지 않는다. 실제
 동작을 구현한 실행 파일은 성공 경로, 입력 오류, checksum 오류, architecture 불일치와 외부
 의존성 실패를 테스트한다.
@@ -363,7 +371,9 @@ checksum, 환경 및 secret 검증, OpenSSL 인증서 chain과 실제 file 및 s
 장애 경로로 검증한다.
 
 Release workflow는 `vMAJOR.MINOR.PATCH` tag Push에서 실행한다. CI와 같은 정적 검증 및 테스트를
-다시 수행하고 Release 생성 순서를 완료한 뒤에만 Release를 게시한다.
+다시 수행한다. Build job은 Repository 읽기 권한만 사용하여 대상 Compose와 Manifest image를
+교차 검증하고 모든 asset을 생성 및 독립 검증한다. Publish job만 Repository 쓰기 권한을 사용하며
+검증된 GitHub Actions artifact를 받은 뒤 Release 생성 순서를 완료한다.
 
 실제 Docker daemon, Docker Compose health check와 systemd 재시작 검증은 별도 Ubuntu test
 host에서 수행한다. 실제 Edge와 Monitoring Server는 Release 적용과 운영 상태 확인에만 사용한다.

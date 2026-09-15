@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+  printf '%s\n' 'Usage: install-validation'
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  printf '%s\n' 'Usage: install-validation' >&2
+  exit 1
+fi
+
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+temporary_directory="$(mktemp -d)"
+cleanup() {
+  rm -rf -- "${temporary_directory}"
+}
+trap cleanup EXIT
+
+cd "${repository}"
+if [[ "$(uv --version | awk '{print $2}')" != "0.12.15" ]]; then
+  printf '%s\n' 'uv version must be 0.12.15.' >&2
+  exit 1
+fi
+if [[ "$(node --version)" != "v24.21.0" ]]; then
+  printf '%s\n' 'Node.js version must be 24.21.0.' >&2
+  exit 1
+fi
+if [[ "$(npm --version)" != "11.19.0" ]]; then
+  printf '%s\n' 'npm version must be 11.19.0.' >&2
+  exit 1
+fi
+if [[ "$(go version | awk '{print $3}')" != "go1.27.1" ]]; then
+  printf '%s\n' 'Go version must be 1.27.1.' >&2
+  exit 1
+fi
+if [[ "$(docker compose version --short)" != "5.5.1" ]]; then
+  printf '%s\n' 'Docker Compose version must be 5.5.1.' >&2
+  exit 1
+fi
+
+uv pip compile requirements-tooling.in \
+  --python-version 3.10 \
+  --generate-hashes \
+  --no-header \
+  --quiet \
+  --output-file "${temporary_directory}/requirements-tooling.txt"
+cmp requirements-tooling.txt "${temporary_directory}/requirements-tooling.txt"
+
+uv venv --clear --python 3.13.15 .venv
+uv pip sync \
+  --python .venv/bin/python \
+  --require-hashes \
+  requirements-tooling.txt
+npm ci --ignore-scripts --no-audit --no-fund
+go -C tools mod download
+go -C tools mod verify
+go -C tools mod tidy -diff

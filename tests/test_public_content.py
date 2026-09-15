@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-EXCLUDED_DIRECTORIES = {".git", ".venv", "__pycache__", "dist"}
+EXCLUDED_DIRECTORIES = {".git", ".venv", "__pycache__", "dist", "node_modules"}
 FORBIDDEN_NAMES = {"ca.json", "root_ca.sha256"}
 FORBIDDEN_SUFFIXES = {".crt", ".key", ".pem", ".password"}
 FORBIDDEN_PATTERNS = {
