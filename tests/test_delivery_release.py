@@ -15,6 +15,7 @@ from tests.test_release import BUILD_ASSETS, manifest_with_components
 REPOSITORY = Path(__file__).resolve().parents[1]
 VERIFY_RELEASE = REPOSITORY / "delivery" / "verify-release"
 FETCH_RELEASE = REPOSITORY / "delivery" / "online" / "fetch-release"
+IMPORT_BUNDLE = REPOSITORY / "delivery" / "offline" / "import-bundle"
 
 
 def build_assets(temporary_path: Path) -> Path:
@@ -251,6 +252,129 @@ cp "${FIXTURE_DIR}/${name}" "${output}"
             self.assertNotEqual(0, result.returncode)
             self.assertFalse(output.exists())
             self.assertEqual([], list(temporary_path.glob(".fetched.*")))
+
+
+class OfflineImportTest(unittest.TestCase):
+    def install_fake_docker(self, temporary_path: Path) -> Path:
+        fake_bin = temporary_path / "bin"
+        fake_bin.mkdir()
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "image" && "$2" == "load" ]]; then
+  cat > "${LOADED_ARCHIVE}"
+  exit "${LOAD_EXIT_CODE:-0}"
+fi
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  printf '%s\n' "${INSPECT_PLATFORM}"
+  printf '%s\n' "${*: -1}" >> "${INSPECT_LOG}"
+  exit 0
+fi
+exit 1
+""",
+            encoding="utf-8",
+        )
+        fake_docker.chmod(0o755)
+        return fake_bin
+
+    def environment(self, temporary_path: Path, fake_bin: Path) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+        environment["LOADED_ARCHIVE"] = str(temporary_path / "loaded.tar")
+        environment["INSPECT_LOG"] = str(temporary_path / "inspect.log")
+        environment["INSPECT_PLATFORM"] = "linux/arm64"
+        return environment
+
+    def test_imports_images_and_verifies_digest_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            assets = build_assets(temporary_path)
+            fake_bin = self.install_fake_docker(temporary_path)
+            environment = self.environment(temporary_path, fake_bin)
+            bundle = assets / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
+            subprocess.run(
+                [
+                    str(IMPORT_BUNDLE),
+                    "--version",
+                    "v0.0.1",
+                    "--target",
+                    "edge",
+                    "--bundle",
+                    str(bundle),
+                    "--checksums",
+                    str(assets / "SHA256SUMS"),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(
+                (temporary_path / "edge-images.tar").read_bytes(),
+                (temporary_path / "loaded.tar").read_bytes(),
+            )
+            self.assertEqual(
+                [f"ghcr.io/ajin-scrap-monitoring/edge@sha256:{'a' * 64}"],
+                (temporary_path / "inspect.log")
+                .read_text(encoding="utf-8")
+                .splitlines(),
+            )
+
+    def test_rejects_platform_mismatch_after_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            assets = build_assets(temporary_path)
+            fake_bin = self.install_fake_docker(temporary_path)
+            environment = self.environment(temporary_path, fake_bin)
+            environment["INSPECT_PLATFORM"] = "linux/amd64"
+            bundle = assets / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
+            result = subprocess.run(
+                [
+                    str(IMPORT_BUNDLE),
+                    "--version",
+                    "v0.0.1",
+                    "--target",
+                    "edge",
+                    "--bundle",
+                    str(bundle),
+                    "--checksums",
+                    str(assets / "SHA256SUMS"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("platform does not match", result.stderr)
+
+    def test_rejects_online_package_before_docker_load(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            assets = build_assets(temporary_path)
+            fake_bin = self.install_fake_docker(temporary_path)
+            environment = self.environment(temporary_path, fake_bin)
+            package = assets / "scrap-monitoring-edge-v0.0.1-online.tar.gz"
+            result = subprocess.run(
+                [
+                    str(IMPORT_BUNDLE),
+                    "--version",
+                    "v0.0.1",
+                    "--target",
+                    "edge",
+                    "--bundle",
+                    str(package),
+                    "--checksums",
+                    str(assets / "SHA256SUMS"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse((temporary_path / "loaded.tar").exists())
 
 
 if __name__ == "__main__":

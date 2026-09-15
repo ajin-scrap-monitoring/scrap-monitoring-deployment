@@ -55,6 +55,7 @@ MODE_MEMBERS = {
     },
     "offline": {
         "delivery/offline/README.md",
+        "delivery/offline/bundle_importer.py",
         "delivery/offline/import-bundle",
     },
 }
@@ -349,7 +350,7 @@ def validate_payload(
             raise ValueError(f"package member is outside the allowlist: {name}")
 
 
-def verify_release(args: argparse.Namespace) -> None:
+def verify_release(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if not VERSION_PATTERN.fullmatch(args.version):
         raise ValueError(f"invalid release version: {args.version}")
     require_regular_file(args.package, "package")
@@ -375,6 +376,7 @@ def verify_release(args: argparse.Namespace) -> None:
             raise ValueError("manifest digest does not match the package descriptor")
         notices = validate_manifest(manifest, args.version)
         validate_payload(set(members), args.target, mode, notices)
+    return mode, manifest
 
 
 def main() -> None:

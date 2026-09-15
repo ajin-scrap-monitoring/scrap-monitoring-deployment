@@ -203,6 +203,10 @@ checksum이 모두 취득되고 검증을 통과한 후에만 출력 디렉토�
 5. 대상 환경에서 checksum을 검증한 뒤 image archive를 Container runtime에 import한다.
 6. 공통 검증과 적용 절차에 Bundle을 전달한다.
 
+Image import는 Bundle 전체 검증을 통과한 대상별 archive만 Docker에 stream으로 load한다.
+Load 후 Manifest가 참조한 모든 image digest의 local 존재와 대상 platform을 다시
+확인한다. 사후 검증이 실패하면 명령은 실패하며 기존 image를 삭제하지 않는다.
+
 ### 공통 검증과 적용
 
 1. Asset checksum, Manifest schema, 통합 버전, 대상과 architecture를 확인한다.
