@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'Usage: validate-test-host --version <version> --target <edge|server> --package <path> --checksums <path> --mode <online|offline> --environment-file <path>'
+}
+
+version=""
+target=""
+package=""
+checksums=""
+mode=""
+environment_file=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --version|--target|--package|--checksums|--mode|--environment-file)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --version) version="$2" ;;
+        --target) target="$2" ;;
+        --package) package="$2" ;;
+        --checksums) checksums="$2" ;;
+        --mode) mode="$2" ;;
+        --environment-file) environment_file="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${version}" || -z "${target}" || -z "${package}" \
+  || -z "${checksums}" || -z "${mode}" || -z "${environment_file}" ]]; then
+  usage >&2
+  exit 2
+fi
+if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
+  printf '%s\n' 'target must be edge or server' >&2
+  exit 2
+fi
+if [[ "${mode}" != "online" && "${mode}" != "offline" ]]; then
+  printf '%s\n' 'mode must be online or offline' >&2
+  exit 2
+fi
+if [[ "${EUID}" -ne 0 ]]; then
+  printf '%s\n' 'test host validation requires root privileges' >&2
+  exit 1
+fi
+
+for command in containerd docker jq systemctl uname; do
+  command -v "${command}" >/dev/null || {
+    printf '%s\n' "${command} is required" >&2
+    exit 1
+  }
+done
+
+ubuntu_id="$(awk -F= '$1 == "ID" {gsub(/"/, "", $2); print $2}' /etc/os-release)"
+if [[ "${ubuntu_id}" != "ubuntu" ]]; then
+  printf '%s\n' 'test host operating system must be Ubuntu' >&2
+  exit 1
+fi
+
+docker_version="$(docker version --format '{{.Server.Version}}')"
+compose_version="$(docker compose version --short)"
+containerd_version="$(containerd --version)"
+if [[ "${docker_version}" != "29.8.0" ]]; then
+  printf '%s\n' "Docker Engine version must be 29.8.0: ${docker_version}" >&2
+  exit 1
+fi
+if [[ "${compose_version#v}" != "5.5.1" ]]; then
+  printf '%s\n' "Docker Compose version must be 5.5.1: ${compose_version}" >&2
+  exit 1
+fi
+if [[ " ${containerd_version} " != *' v2.3.5 '* \
+  && " ${containerd_version} " != *' 2.3.5 '* ]]; then
+  printf '%s\n' "containerd version must be 2.3.5: ${containerd_version}" >&2
+  exit 1
+fi
+
+machine="$(uname -m)"
+if [[ "${target}:${machine}" != "edge:aarch64" \
+  && "${target}:${machine}" != "edge:arm64" \
+  && "${target}:${machine}" != "server:x86_64" \
+  && "${target}:${machine}" != "server:amd64" ]]; then
+  printf '%s\n' "test host architecture does not match ${target}: ${machine}" >&2
+  exit 1
+fi
+
+service="scrap-monitoring-${target}.service"
+if [[ "$(systemctl show --property LoadState --value "${service}")" != "loaded" ]]; then
+  printf '%s\n' "systemd unit is not loaded: ${service}" >&2
+  exit 1
+fi
+
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"${repository}/delivery/apply-release" \
+  --version "${version}" \
+  --target "${target}" \
+  --package "${package}" \
+  --checksums "${checksums}" \
+  --mode "${mode}" \
+  --environment-file "${environment_file}"
+
+deployment_root="/srv/scrap-monitoring/deployment"
+if [[ "$(readlink "${deployment_root}/current")" != "versions/${version}" ]]; then
+  printf '%s\n' 'current deployment pointer does not match the requested version' >&2
+  exit 1
+fi
+if ! jq --exit-status \
+  --arg version "${version}" \
+  --arg target "${target}" \
+  '.schemaVersion == 1 and .version == $version and .target == $target and .result == "success" and .current == ("versions/" + $version)' \
+  "${deployment_root}/state/${target}.json" >/dev/null; then
+  printf '%s\n' 'deployment state does not report a successful apply' >&2
+  exit 1
+fi
+systemctl is-active --quiet "${service}"
+
+project="${deployment_root}/current/targets/${target}"
+expected_services="$(docker compose --project-directory "${project}" config --services | sort)"
+running_services="$(docker compose --project-directory "${project}" ps --status running --services | sort)"
+if [[ -z "${expected_services}" || "${running_services}" != "${expected_services}" ]]; then
+  printf '%s\n' 'Compose services are not all running' >&2
+  exit 1
+fi
+
+printf '%s\n' "test host validation passed: ${target} ${version}"

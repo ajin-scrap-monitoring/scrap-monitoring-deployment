@@ -347,6 +347,28 @@ class PkiValidationTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("requested DNS SAN", result.stderr)
 
+    def test_rejects_insecure_ca_secret_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ca = create_ca_state(Path(temporary))
+            secret = ca["step_ca_directory"] / "secrets" / "provisioner_password"
+            secret.chmod(0o644)
+
+            result = subprocess.run(
+                [
+                    str(VALIDATE_CA_STATE),
+                    "--root-directory",
+                    str(ca["root_directory"]),
+                    "--step-ca-directory",
+                    str(ca["step_ca_directory"]),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("mode must be 600", result.stderr)
+
 
 class EnsureServerCertificateTest(unittest.TestCase):
     def install_fake_commands(self, temporary_path: Path) -> Path:
@@ -582,6 +604,73 @@ exit "${SYSTEMCTL_EXIT_CODE:-0}"
                 "ca renew",
                 (temporary_path / "step.log").read_text(encoding="utf-8"),
             )
+
+    def test_rejects_invalid_renewed_certificate_before_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            ca = create_ca_state(temporary_path)
+            old_certificate, key = create_server_certificate(
+                temporary_path, ca, FQDN, 30
+            )
+            wrong_certificate, _ = create_server_certificate(
+                temporary_path,
+                ca,
+                "other.example.invalid",
+                365,
+                key=key,
+            )
+            tls = temporary_path / "tls"
+            tls.mkdir(mode=0o750)
+            (tls / "server.crt").write_bytes(old_certificate.read_bytes())
+            (tls / "server.key").write_bytes(key.read_bytes())
+            (tls / "server-fullchain.pem").write_bytes(
+                old_certificate.read_bytes()
+                + ca["intermediate_certificate"].read_bytes()
+            )
+            for path in tls.iterdir():
+                path.chmod(0o640)
+            original = (tls / "server.crt").read_bytes()
+            fake_bin = self.install_fake_commands(temporary_path)
+            environment = self.environment(
+                temporary_path, fake_bin, wrong_certificate, key
+            )
+            environment["RENEWED_CERTIFICATE"] = str(wrong_certificate)
+
+            result = subprocess.run(
+                self.ensure_command(temporary_path, ca),
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertEqual(original, (tls / "server.crt").read_bytes())
+            self.assertFalse((temporary_path / "systemctl.log").exists())
+
+    def test_rejects_symbolic_existing_certificate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            ca = create_ca_state(temporary_path)
+            certificate, key = create_server_certificate(temporary_path, ca, FQDN, 365)
+            tls = temporary_path / "tls"
+            tls.mkdir(mode=0o750)
+            (tls / "server.crt").symlink_to(certificate)
+            (tls / "server.key").write_bytes(key.read_bytes())
+            (tls / "server.key").chmod(0o640)
+            fake_bin = self.install_fake_commands(temporary_path)
+            environment = self.environment(temporary_path, fake_bin, certificate, key)
+
+            result = subprocess.run(
+                self.ensure_command(temporary_path, ca),
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("incomplete or symbolic", result.stderr)
 
 
 if __name__ == "__main__":

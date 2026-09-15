@@ -198,13 +198,15 @@ scrap-monitoring-deployment/
 |   |-- test_apply_release.py
 |   |-- test_auth_secrets.py
 |   |-- test_configuration.py
+|   |-- test_delivery_integration.py
 |   |-- test_delivery_release.py
 |   |-- test_entrypoints.py
 |   |-- test_pki.py
 |   |-- test_public_content.py
 |   |-- test_release.py
 |   |-- test_repository.py
-|   `-- validate-repository
+|   |-- validate-repository
+|   `-- validate-test-host
 |-- AGENTS.md
 |-- .gitignore
 |-- requirements-tooling.txt

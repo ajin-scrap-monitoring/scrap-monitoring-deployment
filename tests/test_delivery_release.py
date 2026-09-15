@@ -269,7 +269,7 @@ fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
   printf '%s\n' "${INSPECT_PLATFORM}"
   printf '%s\n' "${*: -1}" >> "${INSPECT_LOG}"
-  exit 0
+  exit "${INSPECT_EXIT_CODE:-0}"
 fi
 exit 1
 """,
@@ -348,6 +348,67 @@ exit 1
             )
             self.assertNotEqual(0, result.returncode)
             self.assertIn("platform does not match", result.stderr)
+
+    def test_image_load_failure_stops_before_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            assets = build_assets(temporary_path)
+            fake_bin = self.install_fake_docker(temporary_path)
+            environment = self.environment(temporary_path, fake_bin)
+            environment["LOAD_EXIT_CODE"] = "1"
+            bundle = assets / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
+
+            result = subprocess.run(
+                [
+                    str(IMPORT_BUNDLE),
+                    "--version",
+                    "v0.0.1",
+                    "--target",
+                    "edge",
+                    "--bundle",
+                    str(bundle),
+                    "--checksums",
+                    str(assets / "SHA256SUMS"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("docker image load failed", result.stderr)
+            self.assertFalse((temporary_path / "inspect.log").exists())
+
+    def test_missing_imported_image_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            assets = build_assets(temporary_path)
+            fake_bin = self.install_fake_docker(temporary_path)
+            environment = self.environment(temporary_path, fake_bin)
+            environment["INSPECT_EXIT_CODE"] = "1"
+            bundle = assets / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
+
+            result = subprocess.run(
+                [
+                    str(IMPORT_BUNDLE),
+                    "--version",
+                    "v0.0.1",
+                    "--target",
+                    "edge",
+                    "--bundle",
+                    str(bundle),
+                    "--checksums",
+                    str(assets / "SHA256SUMS"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("digest is unavailable", result.stderr)
 
     def test_rejects_online_package_before_docker_load(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

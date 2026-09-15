@@ -20,6 +20,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "delivery/validate-environment",
             "delivery/verify-release",
             "tests/test_delivery_release.py",
+            "tests/test_delivery_integration.py",
             "tests/test_apply_release.py",
             "tests/test_pki.py",
             "docs/configuration-management.md",
@@ -44,6 +45,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "targets/edge/compose.yaml",
             "targets/server/compose.yaml",
             "tests/validate-repository",
+            "tests/validate-test-host",
         ]
         missing = [path for path in required_paths if not (REPOSITORY / path).is_file()]
         self.assertEqual([], missing)

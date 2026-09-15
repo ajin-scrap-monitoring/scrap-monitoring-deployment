@@ -145,12 +145,18 @@ printf '%s\n' "$*" >> "${DOCKER_LOG}"
 if [[ "$1" == "pull" ]]; then
   exit 0
 fi
+if [[ "$1" == "image" && "$2" == "load" ]]; then
+  cat > "${LOADED_ARCHIVE}"
+  exit "${LOAD_EXIT_CODE:-0}"
+fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-  printf '%s\n' 'linux/arm64'
-  exit 0
+  printf '%s\n' "${INSPECT_PLATFORM:-linux/arm64}"
+  exit "${INSPECT_EXIT_CODE:-0}"
 fi
 if [[ "$1" == "compose" && "${*: -2}" == "config --services" ]]; then
-  printf '%s\n' 'app'
+  if [[ "${COMPOSE_NO_SERVICES:-0}" != "1" ]]; then
+    printf '%s\n' 'app'
+  fi
   exit 0
 fi
 if [[ "$1" == "compose" && "$*" == *"config --quiet" ]]; then
@@ -181,6 +187,25 @@ exit 0
         encoding="utf-8",
     )
     systemctl.chmod(0o755)
+    curl = fake_bin / "curl"
+    curl.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+url="${*: -1}"
+while [[ "$#" -gt 0 ]]; do
+  if [[ "$1" == "--output" ]]; then
+    output="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+cp "${FIXTURE_DIR}/$(basename "${url}")" "${output}"
+""",
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
     return fake_bin
 
 
@@ -221,6 +246,9 @@ class ApplyReleaseTest(unittest.TestCase):
         )
         self.environment["DOCKER_LOG"] = str(self.temporary_path / "docker.log")
         self.environment["SYSTEMCTL_LOG"] = str(self.temporary_path / "systemctl.log")
+        self.environment["LOADED_ARCHIVE"] = str(
+            self.temporary_path / "loaded-images.tar"
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -348,6 +376,108 @@ class ApplyReleaseTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "content was modified"):
             self.apply(args)
+
+    def test_rejects_image_platform_mismatch_without_switching(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        self.environment["INSPECT_PLATFORM"] = "linux/amd64"
+
+        with self.assertRaisesRegex(RuntimeError, "image platform"):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
+
+    def test_rejects_missing_secret_without_switching(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        (self.host_root / "opt" / "ajin" / "secrets" / "edge-token").unlink()
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
+
+    def test_rejects_edge_configuration_identity_mismatch(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        config = self.host_root / "opt" / "ajin" / "config" / "edge.json"
+        document = json.loads(config.read_text(encoding="utf-8"))
+        document["EDGE_ID"] = "different-edge"
+        config.write_text(json.dumps(document), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "does not match EDGE_ID"):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
+
+    def test_rejects_compose_without_services(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        self.environment["COMPOSE_NO_SERVICES"] = "1"
+
+        with self.assertRaisesRegex(ValueError, "has no services"):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
+
+    def test_restores_release_and_generated_environment_when_health_fails(
+        self,
+    ) -> None:
+        first_assets = build_assets(self.temporary_path, "v0.0.1")
+        first_args = apply_arguments(
+            self.temporary_path,
+            first_assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        self.apply(first_args)
+        deployment = self.temporary_path / "deployment"
+        generated = deployment / "state" / "edge.generated.env"
+        original_generated = generated.read_bytes()
+        config = self.host_root / "opt" / "ajin" / "config" / "edge.json"
+        document = json.loads(config.read_text(encoding="utf-8"))
+        document["calibration"] = "updated"
+        config.write_text(json.dumps(document), encoding="utf-8")
+        second_assets = build_assets(self.temporary_path, "v0.0.2")
+        second_args = apply_arguments(
+            self.temporary_path,
+            second_assets,
+            "v0.0.2",
+            self.host_root,
+            self.environment_file,
+        )
+        self.environment["COMPOSE_UNHEALTHY"] = "1"
+
+        with self.assertRaisesRegex(RuntimeError, "not healthy"):
+            self.apply(second_args)
+
+        self.assertEqual("v0.0.1", (deployment / "current").resolve().name)
+        self.assertEqual(original_generated, generated.read_bytes())
 
     def test_certificate_snapshot_restores_all_tls_files(self) -> None:
         tls = self.temporary_path / "pki" / "tls"

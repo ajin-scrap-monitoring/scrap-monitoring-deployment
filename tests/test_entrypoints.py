@@ -22,6 +22,7 @@ IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "pki" / "ensure-server-certificate",
     REPOSITORY / "pki" / "verify-server-certificate",
     REPOSITORY / "release" / "pull-images",
+    REPOSITORY / "tests" / "validate-test-host",
 ]
 PYTHON_ENTRYPOINTS = [
     REPOSITORY / "release" / "build-assets",
