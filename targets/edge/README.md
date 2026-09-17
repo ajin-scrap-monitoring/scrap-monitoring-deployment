@@ -18,9 +18,11 @@ Edge 설정 입력은 4개다.
 
 ## 연결 경계
 
-두 LiDAR의 실제 주소는 LIDAR_A_IP와 LIDAR_B_IP로 제공한다. Backend 측정과 heartbeat는
-MEASUREMENT_URL과 HEARTBEAT_URL의 HTTPS endpoint를 사용한다. Camera frame은 MEDIA_WSS_URL의
-WebSocket Secure (WSS) endpoint로 전송한다.
+두 LiDAR 주소는 LIDAR_A_IP와 LIDAR_B_IP로 제공한다. hardware는 실제 sensor 주소를, simulation은
+Server가 UDP 8089로 공개한 LiDAR별 IP를 사용한다. simulation Camera Edge Bridge는
+SYNTHETIC_CAMERA_SERVER_URL에서 synthetic MJPEG stream을 수신해 CAMERA_DEVICE V4L2 device에
+기록한다. Backend 측정과 heartbeat는 MEASUREMENT_URL과 HEARTBEAT_URL의 HTTPS endpoint를 사용한다.
+Camera frame은 MEDIA_WSS_URL의 WebSocket Secure (WSS) endpoint로 전송한다.
 
 Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Container에 read-only로
 연결한다. 배포 과정에서 Root CA를 생성하거나 교체하지 않는다.

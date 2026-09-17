@@ -53,8 +53,9 @@ target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 �
 시나리오별 component 집합을 명시하고, Package에는 선택한 scenario source tree만 표준
 `targets/<target>` 경로로 포함한다. systemd와 Compose 실행 경로는 scenario와 무관하게 유지한다.
 현재 Compose service는 외부 Component 실행 계약이 없어서 비어 있다. simulation 환경 파일은
-LiDAR Simulator, Visualizer와 Synthetic Camera Device Bridge가 필요한 host 입력을 정의하지만 실제
-service image, health check와 Compose 계약은 포함하지 않는다.
+Server의 LiDAR별 IP와 공통 UDP 8089, Visualizer publish address, Edge의 LiDAR endpoint와 synthetic Camera
+device 입력을 정의한다. 현재 Simulator Server Release는 LiDAR별 IP에 공통 UDP 8089를 bind하는 실행
+계약을 제공하지 않으므로 실제 service image, health check와 Compose 계약은 포함하지 않는다.
 
 Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
 GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지

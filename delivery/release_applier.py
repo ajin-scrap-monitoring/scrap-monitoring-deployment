@@ -401,11 +401,7 @@ def validate_target_inputs(
             directory=True,
             label="Edge runtime",
         )
-        camera_device = (
-            environment["CAMERA_DEVICE"]
-            if scenario == "hardware"
-            else environment["SYNTHETIC_CAMERA_DEVICE"]
-        )
+        camera_device = environment["CAMERA_DEVICE"]
         require_host_path(
             host_root,
             camera_device,
@@ -419,19 +415,6 @@ def validate_target_inputs(
             directory=False,
             label="Edge Root CA",
         )
-        if scenario == "simulation":
-            require_host_path(
-                host_root,
-                environment["SIMULATOR_CONFIG_DIR"],
-                directory=True,
-                label="Simulator configuration",
-            )
-            require_host_path(
-                host_root,
-                environment["SIMULATOR_RUNTIME_ENV_FILE"],
-                directory=False,
-                label="Simulator runtime environment",
-            )
     else:
         require_host_path(
             host_root,
@@ -445,14 +428,6 @@ def validate_target_inputs(
             directory=True,
             label="Media storage",
         )
-        if scenario == "simulation":
-            require_host_path(
-                host_root,
-                environment["VISUALIZER_CAMERA_PROFILE"],
-                directory=False,
-                label="Visualizer camera profile",
-            )
-
     secret_validator = stage / "delivery" / "validate-auth-secrets"
     command = [str(secret_validator), "--root", str(host_root), target]
     if target == "edge":

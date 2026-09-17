@@ -56,10 +56,9 @@ Release 작업 경로로 복사하지 않는다.
 ## Component 설정과 파생값
 
 hardware Edge의 처리 설정은 /opt/ajin/config/edge.json에서 관리한다. simulation Edge의 처리 설정은
-/opt/ajin/config/edge-simulation.json, LiDAR Simulator 입력은 /opt/ajin/config/lidar-simulator,
-Simulator 실행 환경은 /etc/scrap-monitoring/lidar-simulator.env에서 관리한다. simulation Server의
-Visualizer Camera profile은 /srv/scrap-monitoring/config/visualizer-camera.json에서 관리한다.
-승인된 보정값, 센서 매핑, service version manifest와 simulation 입력은 Component 설정의 책임이다.
+/opt/ajin/config/edge-simulation.json에서 관리한다. Simulator Server의 scene과 sensor 설정, Visualizer
+camera profile과 Camera Edge Bridge의 frame 처리 설정은 Simulator component image가 소유한다. 승인된
+보정값, 센서 매핑과 service version manifest는 Component 설정의 책임이다.
 장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
 CAMERA_ID와 CONFIG_REVISION이 설정 파일에도 있으면 배포 적용기가 값의 일치를 검증한다.
 
@@ -175,6 +174,11 @@ SHA-256 fingerprint다. `PKI_CA_URL`은 host에서 접근하는 loopback 전용 
 | CONFIG_REVISION | Edge 장비 환경설정 | edge.json의 동일 항목과 일치 |
 | CONFIG_SHA256 | Generated environment | edge.json에서 계산 |
 | LIDAR_A_IP, LIDAR_B_IP | Edge 장비 환경설정 | 현장 센서 주소 |
+| SYNTHETIC_CAMERA_SERVER_URL | Edge 장비 환경설정 | Visualizer WebSocket URL |
+| CAMERA_DEVICE | Edge 장비 환경설정 | V4L2 loopback device 경로 |
+| SIMULATOR_LIDAR_A_IP, SIMULATOR_LIDAR_B_IP | Server 장비 환경설정 | LiDAR별 UDP publish IP |
+| SIMULATOR_LIDAR_UDP_PORT | Server 장비 환경설정 | LiDAR별 공통 UDP port |
+| SIMULATOR_VISUALIZER_BIND_ADDRESS | Server 장비 환경설정 | Visualizer HTTP와 WebSocket publish IP |
 | MEASUREMENT_URL | Edge 장비 환경설정 | Backend HTTPS 수신 경로 |
 | HEARTBEAT_URL | Edge 장비 환경설정 | Backend HTTPS heartbeat 경로 |
 | MEDIA_WSS_URL | Edge 장비 환경설정 | Media WSS 수신 경로 |

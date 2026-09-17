@@ -41,13 +41,14 @@ Edge와 Server는 서로 다른 장비와 CPU 아키텍처를 사용하므로 �
 | 시나리오 | Edge 구성 | Server 구성 |
 | --- | --- | --- |
 | `hardware` | LiDAR SDK와 실제 LiDAR 2대, 실제 Camera | Backend, Camera Media Service, Dashboard와 TLS 종단 |
-| `simulation` | LiDAR Simulator, LiDAR Processing, Synthetic Camera Device Bridge와 Camera Edge | Backend, Camera Media Service, Dashboard, Visualizer와 TLS 종단 |
+| `simulation` | LiDAR Processing, Camera Edge와 Camera Edge Bridge, V4L2 loopback device | Simulator Server, Visualizer, Backend, Camera Media Service, Dashboard와 TLS 종단 |
 
-`simulation`에서 LiDAR Simulator는 LiDAR SDK와 실제 LiDAR를 대체하고 LiDAR Processing에 Unix
-Domain Socket (UDS) gRPC endpoint 2개를 제공한다. Simulator는 Visualizer에 관측 JSON Lines를
-Transmission Control Protocol (TCP)으로 전송한다. Server의 Visualizer는 MJPEG WebSocket stream을
-Edge의 Device Bridge에 제공하고, Device Bridge는 Video4Linux (V4L2) loopback device에 초당 30 frame의
-합성 영상을 기록한다. Camera Edge는 해당 device를 실제 Camera와 같은 입력으로 사용한다.
+`simulation`은 Simulator Repository의 Simulation Server, Visualizer, Camera Edge Bridge 3개
+component를 사용한다. Server는 LiDAR별 IP 주소 2개에서 각각 User Datagram Protocol (UDP) 8089를
+공개한다. Edge Platform은 `LIDAR_A_IP`와 `LIDAR_B_IP`로 두 endpoint에 실제 RPLIDAR Software
+Development Kit (SDK) 경로로 연결한다. Visualizer는 synthetic camera WebSocket stream을 제공하고, Edge의
+Camera Edge Bridge는 이를 Video4Linux (V4L2) loopback device에 초당 30 frame으로 기록한다. Camera
+Edge는 해당 device를 실제 Camera와 같은 입력으로 사용한다.
 
 ## 배포 경로
 
