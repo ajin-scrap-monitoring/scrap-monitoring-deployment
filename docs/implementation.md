@@ -53,8 +53,9 @@ target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 �
 시나리오별 component 집합을 명시하고, Package에는 선택한 scenario source tree만 표준
 `targets/<target>` 경로로 포함한다. systemd와 Compose 실행 경로는 scenario와 무관하게 유지한다.
 현재 Compose service는 외부 Component 실행 계약이 없어서 비어 있다. simulation 환경 파일은
-LiDAR Simulator, Visualizer와 Synthetic Camera Device Bridge가 필요한 host 입력을 정의하지만 실제
-service image, health check와 Compose 계약은 포함하지 않는다.
+Server의 LiDAR별 IP와 공통 UDP 8089, Visualizer publish address, Edge의 LiDAR endpoint와 synthetic Camera
+device 입력을 정의한다. 현재 Simulator Server Release는 LiDAR별 IP에 공통 UDP 8089를 bind하는 실행
+계약을 제공하지 않으므로 실제 service image, health check와 Compose 계약은 포함하지 않는다.
 
 Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
 GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지
@@ -71,6 +72,7 @@ Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의�
 
 | Component | 확인된 계약 | 미완료 사항 |
 | --- | --- | --- |
+| Simulator Repository | `v0.3.2` Public AMD64 Simulation Server와 Visualizer, ARM64 Camera Edge Bridge image, V4L2 loopback host 구성과 90 frame 검사 | LiDAR별 IP에 공통 UDP 8089을 bind하는 Simulation Server Release와 통합 수락 검사 |
 | Edge Platform | `v0.1.1`, ARM64 image 5개, UDS 처리, HTTPS 측정과 heartbeat, WSS Camera, file token과 Compose 예제 | Private Package 예외, read-only pull 인증, secret 소유권, Root CA 입력과 현장 검증 |
 | Backend | AMD64 Dockerfile, `/api/v1/metrics/ingest`, `X-Edge-API-Key`, health와 readiness, Browser session API | Release image, Bearer digest registry, Edge schema, 멱등 ACK, heartbeat, 운영 DB와 인증 강화 |
 | Camera Media Service | AMD64 Dockerfile, Camera별 Bearer 인증, 원문 token JSON 환경변수와 binary JPEG WebSocket ingest | Release image, digest registry file, health, Browser 전달, 녹화와 운영 검증 |

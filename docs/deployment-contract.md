@@ -301,7 +301,11 @@ Edge 목표 상태는 `linux/arm64` component만 사용한다. source tree는
 실행 계약이 확인된 뒤에만 각 시나리오 Compose에 추가한다.
 
 hardware Edge는 실제 LiDAR 2개의 site network 주소와 TCP 8089를 각 LiDAR driver에 제공한다.
-simulation Edge는 LiDAR Simulator의 UDS gRPC endpoint 2개와 합성 Camera device를 사용한다.
+simulation Edge는 `LIDAR_A_IP`와 `LIDAR_B_IP`의 Server UDP 8089 endpoint에 실제 RPLIDAR SDK
+driver로 연결한다. 두 IP는 서로 다른 LiDAR endpoint이고 port는 모두 8089다. simulation Edge는
+`CAMERA_DEVICE` V4L2 loopback device를 Camera 입력으로 사용한다. Camera Edge Bridge는
+`SYNTHETIC_CAMERA_SERVER_URL`의 Visualizer WebSocket stream에 outbound로 연결해 해당 device에
+1920 x 1080, 30 Frames Per Second (FPS) Motion JPEG (MJPEG) frame을 기록한다.
 처리 설정은 host의 `/opt/ajin/config/edge.json` 또는
 `/opt/ajin/config/edge-simulation.json`, token은 `/opt/ajin/secrets`, runtime 상태는
 `/opt/ajin/runtime`에서 관리한다. 기존 Root CA는
@@ -324,10 +328,25 @@ Server 목표 상태는 `linux/amd64` component만 사용한다. source tree는
 `current/targets/server/compose.yaml`을 사용하여 Compose project를 관리한다. 실제 component service는
 실행 계약이 확인된 뒤에만 각 시나리오 Compose에 추가한다.
 
+simulation Server는 `SIMULATOR_LIDAR_A_IP`와 `SIMULATOR_LIDAR_B_IP`에 각각 UDP 8089를
+공개한다. 두 IP는 같은 Server host에 사전 구성한 서로 다른 address여야 한다. Simulation Server는
+각 IP와 port의 조합에 독립 RPLIDAR S2E protocol endpoint를 bind하고, Visualizer는
+`SIMULATOR_VISUALIZER_BIND_ADDRESS`의 TCP 18000에서 Browser와 Camera Edge Bridge용 WebSocket
+stream을 제공한다. Simulation Server와 Visualizer 사이의 scene stream은 Server Compose network에서만
+연결한다. Visualizer stream은 credential을 포함하지 않는 개발 전용 private network에서만 사용한다.
+
 TLS 종단은 HTTPS 443에서 Server 인증서 chain을 제공한다. 일반 `/api/` 요청은 Backend로
 전달하고 Camera ingest 경로는 일반 API 규칙보다 먼저 Camera Media Service로 전달한다.
 `Authorization`, `Idempotency-Key`, `Host`, Client 주소와 request ID를 upstream에 유지한다.
 Backend와 Camera Media Service의 내부 port는 host 외부에 공개하지 않는다.
+
+simulation 수락 검사는 5개 경계를 연속으로 확인한다.
+
+1. Simulation Server의 LiDAR별 IP와 UDP 8089에서 RPLIDAR SDK client 2개가 동시에 scan을 수신한다.
+2. Edge Platform이 `LIDAR_A_IP`와 `LIDAR_B_IP`로 두 scan을 처리한다.
+3. Camera Edge Bridge가 Visualizer stream을 V4L2 device에 기록하고 90 frame 검사에 통과한다.
+4. Edge Platform이 Backend와 Camera Media Service의 HTTPS 및 WSS 수신 경계를 통과한다.
+5. Dashboard가 Backend와 Camera Media Service가 제공한 개발용 상태와 영상을 표시한다.
 
 ### Component 연동
 
