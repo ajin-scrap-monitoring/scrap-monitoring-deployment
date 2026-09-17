@@ -72,6 +72,7 @@ Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의�
 
 | Component | 확인된 계약 | 미완료 사항 |
 | --- | --- | --- |
+| Simulator Repository | `v0.3.2` Public AMD64 Simulation Server와 Visualizer, ARM64 Camera Edge Bridge image, V4L2 loopback host 구성과 90 frame 검사 | LiDAR별 IP에 공통 UDP 8089을 bind하는 Simulation Server Release와 통합 수락 검사 |
 | Edge Platform | `v0.1.1`, ARM64 image 5개, UDS 처리, HTTPS 측정과 heartbeat, WSS Camera, file token과 Compose 예제 | Private Package 예외, read-only pull 인증, secret 소유권, Root CA 입력과 현장 검증 |
 | Backend | AMD64 Dockerfile, `/api/v1/metrics/ingest`, `X-Edge-API-Key`, health와 readiness, Browser session API | Release image, Bearer digest registry, Edge schema, 멱등 ACK, heartbeat, 운영 DB와 인증 강화 |
 | Camera Media Service | AMD64 Dockerfile, Camera별 Bearer 인증, 원문 token JSON 환경변수와 binary JPEG WebSocket ingest | Release image, digest registry file, health, Browser 전달, 녹화와 운영 검증 |

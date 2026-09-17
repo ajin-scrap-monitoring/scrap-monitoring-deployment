@@ -1,45 +1,35 @@
-# scrap-monitoring-deployment
+# Scrap Monitoring Deployment
 
-스크랩 모니터링 시스템의 Edge와 Server 배포 구성을 함께 관리하는 Repository다. 각 기능의
-소스 코드는 해당 개발 Repository에서 관리하고, 이 Repository는 호환되는 컴포넌트 버전과
-운영 구성을 하나의 배포 버전으로 묶는다.
+스크랩 모니터링 시스템의 Edge와 Server 통합 배포 구성을 관리한다. 기능별 Repository가 제공한
+고정 OCI (Open Container Initiative) image digest와 대상별 설정을 하나의 배포 Release로 조합한다.
+애플리케이션 소스와 내부 구현은 각 기능별 Repository가 소유한다.
 
 ## 빠른 시작
 
-Repository 검증에는 Python `3.13.15`, Node.js `24.21.0`, npm `11.19.0`, Go `1.27.1`,
-uv `0.12.15`, Docker Compose `5.5.1`, ShellCheck와 `systemd-analyze`가 필요하다.
+Docker Compose, ShellCheck, systemd-analyze, uv, Node.js, npm과 Go를 설치한 뒤 Repository 루트에서
+검증 환경을 구성하고 전체 검사를 실행한다. `tools/install-validation`은 지원하는 정확한 도구 version을
+검사한다.
 
 ```bash
 tools/install-validation
 tests/validate-repository
 ```
 
-배포 계약과 현재 미구현 범위는
-[`docs/implementation.md`](docs/implementation.md)의 현재 상태를 확인한다.
+## 설정
 
-## 디렉토리
-
-| 경로 | 역할 |
-| --- | --- |
-| `targets/edge` | Raspberry Pi Edge 배포 목표 상태 |
-| `targets/server` | 온프레미스 Server 배포 목표 상태 |
-| `delivery/online` | 대상 장비가 외부 배포 위치에서 가져오는 Outbound Pull |
-| `delivery/offline` | 외부 네트워크 없이 반입하고 적용하는 Offline Bundle |
-| `release` | 전체 시스템 배포 버전과 호환 컴포넌트 집합 |
-| `pki` | 공개 가능한 PKI 설정 template와 일반 배포의 인증서 자동화 도구 |
-| `notices` | Release asset에 포함할 Component별 외부 고지 |
-| `tests` | Compose, 배포, PKI와 Release 검증 |
-| `.github/workflows` | Repository 검증 CI와 통합 Release 게시 |
+실제 환경설정, token, 인증서 개인키와 현장 주소는 Git과 Release asset에 포함하지 않는다. 대상별
+공개 schema는 `targets/<target>/<scenario>/.env.example`이고, 소유권과 동기화는
+[환경설정 관리](docs/configuration-management.md)를 따른다.
 
 ## 문서
 
 | 문서 | 역할 |
 | --- | --- |
-| [`docs/project-spec.md`](docs/project-spec.md) | 배포 프로젝트의 목적, 범위와 외부 경계 |
-| [`docs/deployment-contract.md`](docs/deployment-contract.md) | 외부 입력과 배포 영역별 기대 동작 |
-| [`docs/configuration-management.md`](docs/configuration-management.md) | 환경설정의 소유권, 저장 위치와 동기화 |
-| [`docs/implementation.md`](docs/implementation.md) | 채택한 배포 구조와 현재 구현 상태 |
-| [`docs/pki-operations.md`](docs/pki-operations.md) | Private PKI 수동 구성과 일반 배포 자동화 |
+| [프로젝트 명세](docs/project-spec.md) | 제품 목적, 범위, 배포 대상과 시나리오 |
+| [배포 계약](docs/deployment-contract.md) | 외부 입력, 대상별 동작과 수락 검사 |
+| [환경설정 관리](docs/configuration-management.md) | 설정값과 비밀정보의 소유권 및 동기화 |
+| [구현 상태](docs/implementation.md) | 채택한 구조, 구현 범위와 component 연동 상태 |
+| [PKI 운영](docs/pki-operations.md) | Private PKI Bootstrap, 인증서 발급과 갱신 |
 
 ## 소스 이용 조건
 
