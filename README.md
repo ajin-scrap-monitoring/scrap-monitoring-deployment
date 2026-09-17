@@ -4,14 +4,18 @@
 고정 OCI (Open Container Initiative) image digest와 대상별 설정을 하나의 배포 Release로 조합한다.
 애플리케이션 소스와 내부 구현은 각 기능별 Repository가 소유한다.
 
-## 빠른 시작
+## 의존성 설치
 
-Docker Compose, ShellCheck, systemd-analyze, uv, Node.js, npm과 Go를 설치한 뒤 Repository 루트에서
-검증 환경을 구성하고 전체 검사를 실행한다. `tools/install-validation`은 지원하는 정확한 도구 version을
-검사한다.
+Docker Compose, ShellCheck, systemd-analyze, uv, Node.js, npm과 Go를 host에 설치한다.
+`tools/install-validation`은 지원하는 도구 version을 검사하고 Python, Node.js와 Go 의존성을 설치한다.
 
 ```bash
 tools/install-validation
+```
+
+## 검증
+
+```bash
 tests/validate-repository
 ```
 
