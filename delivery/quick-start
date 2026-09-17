@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'Usage: quick-start --version <version> --target <edge|server> [--scenario <hardware|simulation>] [--output <directory>]'
+}
+
+version=""
+target=""
+scenario="hardware"
+output_directory=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --version|--target|--scenario|--output)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --version) version="$2" ;;
+        --target) target="$2" ;;
+        --scenario) scenario="$2" ;;
+        --output) output_directory="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf '%s\n' "Invalid release version: ${version}" >&2
+  exit 2
+fi
+if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
+  printf '%s\n' "Invalid release target: ${target}" >&2
+  exit 2
+fi
+if [[ "${scenario}" != "hardware" && "${scenario}" != "simulation" ]]; then
+  printf '%s\n' "Invalid release scenario: ${scenario}" >&2
+  exit 2
+fi
+if [[ "${EUID}" -ne 0 ]]; then
+  printf '%s\n' 'quick start requires root privileges' >&2
+  exit 1
+fi
+
+environment_file="/etc/scrap-monitoring/${target}.env"
+if [[ ! -f "${environment_file}" || -L "${environment_file}" ]]; then
+  printf '%s\n' "target environment file is missing: ${environment_file}" >&2
+  exit 1
+fi
+if ! getent group scrap-admin >/dev/null; then
+  printf '%s\n' "scrap-admin group is missing; run install-container-runtime --target ${target} first" >&2
+  exit 1
+fi
+if [[ "$(stat --format='%a:%U:%G' -- "${environment_file}")" != '640:root:scrap-admin' ]]; then
+  printf '%s\n' "target environment file must be root:scrap-admin with mode 0640: ${environment_file}" >&2
+  exit 1
+fi
+if [[ -z "${output_directory}" ]]; then
+  output_directory="/var/tmp/scrap-monitoring-${target}-${scenario}-${version}"
+fi
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${script_directory}/online/fetch-release" \
+  --version "${version}" \
+  --target "${target}" \
+  --scenario "${scenario}" \
+  --output "${output_directory}"
+"${script_directory}/apply-release" \
+  --version "${version}" \
+  --target "${target}" \
+  --scenario "${scenario}" \
+  --package "${output_directory}/scrap-monitoring-${target}-${scenario}-${version}-online.tar.gz" \
+  --checksums "${output_directory}/SHA256SUMS" \
+  --mode online
+systemctl is-active --quiet "scrap-monitoring-${target}"
+
+printf '%s\n' "quick start passed: ${target} ${scenario} ${version}"

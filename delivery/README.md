@@ -10,6 +10,9 @@ Manifest의 version, target, scenario, mode, platform과 digest를 교차 검증
 인증서를 확인한 뒤 current 및 previous link를 전환하고 systemd를 시작한다. 시작 또는 Compose
 실행 상태 확인이 실패하면 이전 link, Edge 파생 설정과 Server 인증서를 복구한다.
 
+`quick-start`는 대상 환경 파일이 준비된 host에서 Online Package 취득, 적용과 systemd active 상태
+확인을 하나의 명령으로 수행한다. 기본 시나리오는 `hardware`다.
+
 인증 정보 도구는 4개다.
 
 | 실행 파일 | 역할 |

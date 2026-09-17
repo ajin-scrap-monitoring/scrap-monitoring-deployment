@@ -11,7 +11,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from delivery.release_applier import CertificateSnapshot, apply_release
+from delivery.release_applier import (
+    CertificateSnapshot,
+    apply_release,
+    synchronize_host_group_environment,
+)
 from tests.test_release import BUILD_ASSETS, image_directory, manifest_with_components
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -129,6 +133,40 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
         "example-camera",
     )
     return host_root, environment_file
+
+
+class HostGroupEnvironmentTest(unittest.TestCase):
+    def test_synchronizes_host_group_identifier(self) -> None:
+        cases = [
+            ("edge", "VIDEO_GID", "video", 44),
+            ("server", "DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin", 1002),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            for target, variable, group_name, group_id in cases:
+                with self.subTest(target=target):
+                    environment_file = temporary_path / f"{target}.env"
+                    environment_file.write_text(
+                        f"{variable}=0\nOTHER=value\n", encoding="utf-8"
+                    )
+                    environment_file.chmod(0o640)
+                    environment = {variable: "0"}
+                    with patch("delivery.release_applier.grp.getgrnam") as getgrnam:
+                        getgrnam.return_value.gr_gid = group_id
+                        result = synchronize_host_group_environment(
+                            target,
+                            environment,
+                            environment_file,
+                            Path("/"),
+                        )
+
+                    getgrnam.assert_called_once_with(group_name)
+                    self.assertEqual(str(group_id), result[variable])
+                    self.assertEqual(
+                        f"{variable}={group_id}\nOTHER=value\n",
+                        environment_file.read_text(encoding="utf-8"),
+                    )
+                    self.assertEqual(0o640, environment_file.stat().st_mode & 0o777)
 
 
 def install_fake_commands(temporary_path: Path) -> Path:

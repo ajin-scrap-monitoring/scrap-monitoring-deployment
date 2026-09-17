@@ -54,6 +54,7 @@ MODE_MEMBERS = {
     "online": {
         "delivery/online/README.md",
         "delivery/online/fetch-release",
+        "delivery/quick-start",
     },
     "offline": {
         "delivery/offline/README.md",

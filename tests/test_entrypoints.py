@@ -9,6 +9,8 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[1]
 IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "apply-release",
+    REPOSITORY / "delivery" / "install-container-runtime",
+    REPOSITORY / "delivery" / "quick-start",
     REPOSITORY / "delivery" / "verify-release",
     REPOSITORY / "delivery" / "online" / "fetch-release",
     REPOSITORY / "delivery" / "offline" / "import-bundle",
@@ -22,6 +24,7 @@ IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "pki" / "verify-server-certificate",
     REPOSITORY / "release" / "pull-images",
     REPOSITORY / "tools" / "install-validation",
+    REPOSITORY / "tests" / "validate-container",
     REPOSITORY / "tests" / "validate-test-host",
 ]
 PYTHON_ENTRYPOINTS = [
@@ -55,6 +58,18 @@ class EntrypointTest(unittest.TestCase):
                     text=True,
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_container_runtime_installer_requires_a_valid_target(self) -> None:
+        entrypoint = REPOSITORY / "delivery" / "install-container-runtime"
+        for arguments in ([], ["--target", "invalid"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [str(entrypoint), *arguments],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(2, result.returncode, result.stderr)
 
 
 if __name__ == "__main__":

@@ -50,8 +50,13 @@ release.env는 Release asset에서 생성한 파일이며 사람이 수정하지
 Fully Qualified Domain Name (FQDN), 장치 경로, host group ID와 독립적으로 확인한 Root CA
 fingerprint를 보관하며 Git과 Release asset에 포함하지 않는다.
 
-실제 환경 파일은 root:scrap-admin, file 0640을 사용한다. 배포 적용기는 값을 로그에 출력하거나
-Release 작업 경로로 복사하지 않는다.
+실제 환경설정 directory는 root:scrap-admin, directory 0750을 사용하고 환경 파일은 root:scrap-admin,
+file 0640을 사용한다. `delivery/install-container-runtime --target <edge|server>`는 `scrap-admin`
+시스템 그룹을 생성한다. 배포 적용기는 값을 로그에 출력하거나 Release 작업 경로로 복사하지 않는다.
+
+`VIDEO_GID`와 `DASHBOARD_SCRAP_ADMIN_GID`는 host group ID 파생값이다. `delivery/apply-release`는
+각각 `video`와 `scrap-admin` group ID를 조회하여 실제 환경 파일에 원자적으로 기록한다. 운영자는
+이 값을 직접 입력하지 않는다.
 
 ## Component 설정과 파생값
 

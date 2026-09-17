@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+  printf '%s\n' 'Usage: validate-container'
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  printf '%s\n' 'Usage: validate-container' >&2
+  exit 1
+fi
+
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+image="scrap-monitoring-deployment-validation:local"
+
+docker build --file "${repository}/Dockerfile.validation" --tag "${image}" "${repository}"
+docker run --rm "${image}"
