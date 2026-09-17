@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -27,8 +28,12 @@ MACHINE_PLATFORMS = {
     "amd64": "linux/amd64",
 }
 RUNTIME_EXCLUDED_PREFIXES = ("delivery/online/", "delivery/offline/", "images/")
-RUNTIME_EXCLUDED_FILES = {"release-package.json"}
+RUNTIME_EXCLUDED_FILES = {"delivery/quick-start", "release-package.json"}
 CERTIFICATE_FILES = ("server.crt", "server.key", "server-fullchain.pem")
+HOST_GROUP_VARIABLES = {
+    "edge": ("VIDEO_GID", "video"),
+    "server": ("DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin"),
+}
 MAX_EDGE_CONFIG_SIZE = 16 * 1024 * 1024
 
 
@@ -247,10 +252,20 @@ def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def validate_environment_file(path: Path, host_root: Path) -> None:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"target environment file is missing or symbolic: {path}")
-    if stat.S_IMODE(path.stat().st_mode) != 0o640:
+    metadata = path.stat()
+    if stat.S_IMODE(metadata.st_mode) != 0o640:
         raise ValueError(f"target environment file mode must be 0640: {path}")
-    if host_root == Path("/") and path.stat().st_uid != 0:
-        raise ValueError(f"target environment file must be owned by root: {path}")
+    if host_root == Path("/"):
+        if metadata.st_uid != 0:
+            raise ValueError(f"target environment file must be owned by root: {path}")
+        try:
+            expected_group = grp.getgrnam("scrap-admin")
+        except KeyError as error:
+            raise ValueError("scrap-admin group is missing") from error
+        if metadata.st_gid != expected_group.gr_gid:
+            raise ValueError(
+                f"target environment file must be owned by scrap-admin group: {path}"
+            )
 
 
 def validate_host_platform(target: str, override: str | None = None) -> str:
@@ -340,7 +355,12 @@ def write_environment(path: Path, variables: dict[str, str]) -> None:
     write_atomic(path, content.encode(), 0o644)
 
 
-def write_atomic(path: Path, content: bytes, mode: int) -> None:
+def write_atomic(
+    path: Path,
+    content: bytes,
+    mode: int,
+    owner: tuple[int, int] | None = None,
+) -> None:
     ensure_directory(path.parent)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", dir=path.parent
@@ -352,9 +372,53 @@ def write_atomic(path: Path, content: bytes, mode: int) -> None:
             output.flush()
             os.fsync(output.fileno())
         temporary.chmod(mode)
+        if owner is not None:
+            os.chown(temporary, *owner)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def replace_environment_value(path: Path, key: str, value: str) -> None:
+    metadata = path.stat()
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    replacement = f"{key}={value}\n"
+    replaced = False
+    content: list[str] = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            content.append(replacement)
+            replaced = True
+        else:
+            content.append(line)
+    if not replaced:
+        raise ValueError(f"target environment file is missing {key}: {path}")
+    write_atomic(
+        path,
+        "".join(content).encode(),
+        stat.S_IMODE(metadata.st_mode),
+        owner=(metadata.st_uid, metadata.st_gid),
+    )
+
+
+def synchronize_host_group_environment(
+    target: str,
+    environment: dict[str, str],
+    environment_file: Path,
+    host_root: Path,
+) -> dict[str, str]:
+    if host_root != Path("/"):
+        return environment
+    variable, group_name = HOST_GROUP_VARIABLES[target]
+    try:
+        group = grp.getgrnam(group_name)
+    except KeyError as error:
+        raise ValueError(f"required host group is missing: {group_name}") from error
+    value = str(group.gr_gid)
+    if environment[variable] != value:
+        replace_environment_value(environment_file, variable, value)
+        environment[variable] = value
+    return environment
 
 
 def create_edge_generated_environment(
@@ -392,6 +456,9 @@ def validate_target_inputs(
     environment = parse_environment(environment_file)
     if environment["DEPLOYMENT_SCENARIO"] != scenario:
         raise ValueError("target environment scenario does not match the package")
+    environment = synchronize_host_group_environment(
+        target, environment, environment_file, host_root
+    )
     generated = None
     if target == "edge":
         generated = create_edge_generated_environment(environment, host_root)

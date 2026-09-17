@@ -3,10 +3,10 @@
 ## 현재 상태
 
 GitHub 원격 Repository, 기본 설정, ruleset 4개와 CodeQL Default setup이 구성되어 있다.
-Repository에는 배포 도구, 대상별 목표 상태, CI와 Release workflow가 구성되어 있다. CI는 고정된
-GitHub Action commit과 Python, npm 및 Go lock을 사용하여 Markdown, YAML, GitHub Actions, JSON과
-JSON Schema, Docker Compose, Python, Shell, systemd, Release asset, checksum과 Public 범위를
-검사하고 High 이상 Node.js 의존성 취약점을 거부한다. Release workflow는 보호된 version tag,
+Repository에는 배포 도구, 대상별 목표 상태, CI와 Release workflow가 구성되어 있다. CI는 Validation
+container를 사용하여 Markdown, YAML, GitHub Actions, JSON과 JSON Schema, Docker Compose, Python,
+Shell, systemd, Release asset, checksum과 Public 범위를 검사하고 High 이상 Node.js 의존성 취약점을
+거부한다. Release workflow는 같은 Validation container와 보호된 version tag,
 원격 `main`, version manifest, 대상별 component와
 Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계약에 맞는 GHCR image 취득, asset 생성과
 독립 검증을 수행하고 쓰기 권한을 가진 publish job은 검증된 artifact만 Draft Release로 게시한다.
@@ -14,8 +14,9 @@ Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계�
 환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
 대상과 시나리오별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
 `delivery/validate-environment`는 실제 값을 출력하지 않고 schema version, 변수 집합과 빈 값을
-검사한다. systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated
-environment 파일을 Compose 실행 환경으로 사용한다.
+검사한다. `delivery/apply-release`는 host에서 파생한 group ID를 실제 환경 파일에 동기화한다.
+systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated environment 파일을
+Compose 실행 환경으로 사용한다.
 
 Edge별 Backend Bearer token과 Camera별 Camera Media Service Bearer token은 배포 도구가 생성하고
 rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-bit token bundle 생성, Edge
@@ -56,6 +57,7 @@ target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 �
 Server의 LiDAR별 IP와 공통 UDP 8089, Visualizer publish address, Edge의 LiDAR endpoint와 synthetic Camera
 device 입력을 정의한다. 현재 Simulator Server Release는 LiDAR별 IP에 공통 UDP 8089를 bind하는 실행
 계약을 제공하지 않으므로 실제 service image, health check와 Compose 계약은 포함하지 않는다.
+simulation 구성과 적용 순서는 [Simulation 배포](simulation-deployment.md)를 따른다.
 
 Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
 GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지
@@ -157,6 +159,8 @@ scrap-monitoring-deployment/
 |   |-- apply-release
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
+|   |-- install-container-runtime
+|   |-- quick-start
 |   |-- release_applier.py
 |   |-- release_verifier.py
 |   |-- retire-auth-secret
@@ -234,6 +238,7 @@ scrap-monitoring-deployment/
 |   |-- test_release_targets.py
 |   |-- test_repository.py
 |   |-- test_workflows.py
+|   |-- validate-container
 |   |-- validate-repository
 |   `-- validate-test-host
 |-- tools/
@@ -241,6 +246,7 @@ scrap-monitoring-deployment/
 |   |-- go.sum
 |   `-- install-validation
 |-- AGENTS.md
+|-- Dockerfile.validation
 |-- .gitignore
 `-- README.md
 ```
@@ -282,10 +288,13 @@ Root CA 개인키는 암호화하여 Monitoring Server 밖의 오프라인 저�
 ## 대상 host runtime
 
 두 배포 대상은 Docker 공식 APT 저장소의 Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과
-containerd `2.3.5`를 사용한다. 설치 패키지는 `docker-ce`, `docker-ce-cli`, `containerd.io`와
-`docker-compose-plugin`이며 Docker 공식 APT 저장소에서 취득한다. Docker daemon은 root 권한의
-systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가하지 않는다. Docker Buildx는
-기능별 Repository CI의 멀티플랫폼 image 빌드에 사용하고 대상 host에는 설치하지 않는다.
+containerd `2.3.5`를 사용한다. `delivery/install-container-runtime --target <edge|server>`는 Debian
+또는 Ubuntu에서 대상 architecture, `scrap-admin` 시스템 그룹과 공통 배포 도구를 검증한 뒤
+`docker-ce`, `docker-ce-cli`, `containerd.io`와 `docker-compose-plugin`의 고정 version을 설치하고
+실행 version을 검증한다. Server는 Smallstep APT repository에서 `step` CLI `0.30.6`과 `step-ca`
+`0.30.2`도 설치하고 version을 검증한다. Docker daemon은 root 권한의 systemd 서비스로 실행하며
+대상 사용자를 `docker` 그룹에 추가하지 않는다. Docker Buildx는 기능별 Repository CI의
+멀티플랫폼 image 빌드에 사용하고 대상 host에는 설치하지 않는다.
 
 서버의 Docker 컨테이너 로그는 `local` driver와 `20m` `max-size`, `5` `max-file`을 사용한다.
 엣지는 `local` driver와 `10m` `max-size`, `3` `max-file`을 사용한다. systemd 저널은 서버가
@@ -297,6 +306,7 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | --- | --- | --- | --- | --- |
 | Bash | `5.1` 이상 | Host 배포와 인증 정보 도구 실행 | [GNU Bash](https://www.gnu.org/software/bash/) | GPL-3.0-or-later |
 | GNU Coreutils | `8.32` 이상 | CSPRNG byte 변환, file 설치, digest와 권한 처리 | [GNU Coreutils](https://www.gnu.org/software/coreutils/) | GPL-3.0-or-later |
+| GNU Findutils | `4.8` 이상 | credential 임시 파일 정리 | [GNU Findutils](https://www.gnu.org/software/findutils/) | GPL-3.0-or-later |
 | OpenSSL | `3.0.2` 이상 | CA fingerprint, 인증서 chain, SAN, key와 유효기간 검증 | [OpenSSL](https://www.openssl.org/) | Apache-2.0 |
 | Python | `3.10` 이상 | 대상 host의 Release Package 구조와 Manifest 검증 | [Python](https://www.python.org/) | PSF-2.0 |
 | `curl` | `7.81.0` 이상 | GitHub Release에서 Online Package와 checksum을 HTTPS로 취득 | [curl](https://curl.se/) | curl license |
@@ -304,6 +314,11 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | `flock` | util-linux `2.37` 이상 | Server digest registry 갱신 직렬화 | [util-linux](https://github.com/util-linux/util-linux) | GPL-2.0-or-later |
 | `step` CLI | `0.30.6` | PKI Bootstrap, Server 인증서 요청과 갱신 | [`smallstep/cli`](https://github.com/smallstep/cli) | Apache-2.0 |
 | `step-ca` | `0.30.2` | Intermediate CA를 이용한 Server 인증서 발급 | [`smallstep/certificates`](https://github.com/smallstep/certificates) | Apache-2.0 |
+| Docker Engine | `29.8.0` | 대상 Container runtime | [Moby](https://github.com/moby/moby) | Apache-2.0 |
+| Docker Compose plugin | `5.5.1` | 대상 Compose 구성 적용 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
+| containerd | `2.3.5` | 대상 Container runtime 관리 | [containerd](https://github.com/containerd/containerd) | Apache-2.0 |
+| GNU Privacy Guard | Debian 또는 Ubuntu 제공 version | Docker APT repository 서명 key 설치 | [GnuPG](https://gnupg.org/) | GPL-3.0-or-later |
+| shadow suite (`passwd` package) | Debian 또는 Ubuntu 제공 version | `scrap-admin` 시스템 그룹 생성 | [shadow](https://github.com/shadow-maint/shadow) | BSD-3-Clause |
 
 ## CI와 Release 도구
 
@@ -314,6 +329,8 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | `actions/setup-go` | `v7.0.0` | 고정 Go 설치와 module cache | [`actions/setup-go`](https://github.com/actions/setup-go) | MIT |
 | `astral-sh/setup-uv` | `v10.1.0` | 고정 uv 설치 | [`astral-sh/setup-uv`](https://github.com/astral-sh/setup-uv) | MIT |
 | `docker/setup-compose-action` | `v2.3.0` | 고정 Docker Compose 설치 | [`docker/setup-compose-action`](https://github.com/docker/setup-compose-action) | Apache-2.0 |
+| `docker:29.8.0-cli` | `29.8.0-cli` | Validation container의 Docker CLI와 Compose plugin | [Docker Hub](https://hub.docker.com/_/docker) | Apache-2.0 |
+| Debian | `bookworm-slim` | Validation container base | [Debian](https://www.debian.org/) | Debian Free Software Guidelines (DFSG) compatible |
 | `actions/upload-artifact` | `v7.0.1` | 검증된 Release asset 전달 | [`actions/upload-artifact`](https://github.com/actions/upload-artifact) | MIT |
 | `actions/download-artifact` | `v8.0.1` | 검증된 Release asset 수신 | [`actions/download-artifact`](https://github.com/actions/download-artifact) | MIT |
 | Actionlint | `1.7.12` | GitHub Actions workflow 정적 검사 | [`rhysd/actionlint`](https://github.com/rhysd/actionlint) | MIT |
@@ -329,11 +346,11 @@ systemd 서비스로 실행하며 대상 사용자를 `docker` 그룹에 추가�
 | `markdownlint-cli2` | `0.23.2` | Markdown 검사 | [npm](https://www.npmjs.com/package/markdownlint-cli2) | MIT |
 | `smol-toml` | `1.7.1` | Markdown 설정 parsing용 보안 고정 전이 의존성 | [npm](https://www.npmjs.com/package/smol-toml) | BSD-3-Clause |
 | `yamllint` | `1.38.0` | YAML 검사 | [PyPI](https://pypi.org/project/yamllint/) | GPL-3.0 |
-| `jq` | GitHub-hosted runner 제공 version | JSON 문법 검사 | [jqlang](https://jqlang.org/) | MIT |
+| `jq` | `1.6` | JSON 문법 검사 | [jqlang](https://jqlang.org/) | MIT |
 | Docker Compose | `5.5.1` | Compose schema와 Manifest image 연결 검사 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
 | GitHub CLI | GitHub-hosted runner 제공 version | Draft Release 생성, asset 첨부와 게시 | [GitHub CLI](https://github.com/cli/cli) | MIT |
-| ShellCheck | GitHub-hosted runner 제공 version | Bash 정적 검사 | [ShellCheck](https://github.com/koalaman/shellcheck) | GPL-3.0 |
-| `systemd-analyze` | GitHub-hosted runner 제공 version | systemd unit 검사 | [systemd](https://github.com/systemd/systemd) | LGPL-2.1-or-later |
+| ShellCheck | `0.9.0` | Bash 정적 검사 | [ShellCheck](https://github.com/koalaman/shellcheck) | GPL-3.0 |
+| `systemd-analyze` | `252` | systemd unit 검사 | [systemd](https://github.com/systemd/systemd) | LGPL-2.1-or-later |
 
 모든 외부 GitHub Action은 표의 version tag가 가리키는 full commit SHA로 고정한다. Python
 전이 의존성은 hash가 포함된 `requirements-tooling.txt`, Node.js 전이 의존성은

@@ -59,7 +59,7 @@ jobs:
         run: tools/install-validation
 
       - name: Validate repository
-        run: tests/validate-repository
+        run: tests/validate-container
 
       - name: Validate release input
         run: |

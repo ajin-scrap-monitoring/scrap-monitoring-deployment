@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'Usage: install-container-runtime --target <edge|server>'
+}
+
+target=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --target)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      target="$2"
+      shift 2
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
+  usage >&2
+  exit 2
+fi
+if [[ "${EUID}" -ne 0 ]]; then
+  printf '%s\n' 'container runtime installation requires root privileges' >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID}" in
+  debian|ubuntu) ;;
+  *)
+    printf '%s\n' "unsupported operating system: ${ID}" >&2
+    exit 1
+    ;;
+esac
+
+architecture="$(dpkg --print-architecture)"
+if [[ "${target}" == "edge" && "${architecture}" != "arm64" ]]; then
+  printf '%s\n' "Edge host architecture must be arm64: ${architecture}" >&2
+  exit 1
+fi
+if [[ "${target}" == "server" && "${architecture}" != "amd64" ]]; then
+  printf '%s\n' "Server host architecture must be amd64: ${architecture}" >&2
+  exit 1
+fi
+
+if ! getent group scrap-admin >/dev/null; then
+  groupadd --system scrap-admin
+fi
+
+package_version() {
+  local package="$1"
+  local expected_version="$2"
+  local version
+  version="$(apt-cache madison "${package}" \
+    | awk -v expected_version="${expected_version}" \
+      '$3 ~ ("^" expected_version "([~-]|$)") { print $3; exit }')"
+  if [[ -z "${version}" ]]; then
+    printf '%s\n' "required package version is unavailable: ${package} ${expected_version}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${version}"
+}
+
+apt-get update
+apt-get install --yes \
+  ca-certificates \
+  coreutils \
+  curl \
+  findutils \
+  gnupg \
+  jq \
+  openssl \
+  passwd \
+  python3 \
+  util-linux
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL "https://download.docker.com/linux/${ID}/gpg" \
+  | gpg --dearmor --yes -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+printf '%s\n' \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
+  > /etc/apt/sources.list.d/docker.list
+
+if [[ "${target}" == "server" ]]; then
+  curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
+    -o /etc/apt/keyrings/smallstep.asc
+  chmod a+r /etc/apt/keyrings/smallstep.asc
+  printf '%s\n' \
+    'Types: deb' \
+    'URIs: https://packages.smallstep.com/stable/debian' \
+    'Suites: debs' \
+    'Components: main' \
+    'Signed-By: /etc/apt/keyrings/smallstep.asc' \
+    > /etc/apt/sources.list.d/smallstep.sources
+fi
+
+apt-get update
+docker_ce_version="$(package_version docker-ce '5:29.8.0')"
+docker_cli_version="$(package_version docker-ce-cli '5:29.8.0')"
+containerd_version="$(package_version containerd.io '2.3.5')"
+compose_version="$(package_version docker-compose-plugin '5.5.1')"
+packages=(
+  "containerd.io=${containerd_version}" \
+  "docker-ce=${docker_ce_version}" \
+  "docker-ce-cli=${docker_cli_version}" \
+  "docker-compose-plugin=${compose_version}"
+)
+if [[ "${target}" == "server" ]]; then
+  step_cli_version="$(package_version step-cli '0.30.6')"
+  step_ca_version="$(package_version step-ca '0.30.2')"
+  packages+=(
+    "step-cli=${step_cli_version}" \
+    "step-ca=${step_ca_version}"
+  )
+fi
+apt-get install --yes "${packages[@]}"
+systemctl enable --now docker
+
+if [[ "$(docker version --format '{{.Server.Version}}')" != '29.8.0' ]]; then
+  printf '%s\n' 'Docker Engine version must be 29.8.0.' >&2
+  exit 1
+fi
+if [[ "$(docker compose version --short)" != '5.5.1' ]]; then
+  printf '%s\n' 'Docker Compose plugin version must be 5.5.1.' >&2
+  exit 1
+fi
+if [[ "$(containerd --version)" != *' 2.3.5 '* \
+  && "$(containerd --version)" != *' v2.3.5 '* ]]; then
+  printf '%s\n' 'containerd version must be 2.3.5.' >&2
+  exit 1
+fi
+if [[ "${target}" == "server" ]]; then
+  if [[ "$(step version)" != *'0.30.6'* ]]; then
+    printf '%s\n' 'step CLI version must be 0.30.6.' >&2
+    exit 1
+  fi
+  if [[ "$(step-ca version)" != *'0.30.2'* ]]; then
+    printf '%s\n' 'step-ca version must be 0.30.2.' >&2
+    exit 1
+  fi
+fi

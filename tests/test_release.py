@@ -560,8 +560,10 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("targets/edge/compose.yaml", names)
             self.assertIn("docs/configuration-management.md", names)
             self.assertIn("delivery/validate-environment", names)
+            self.assertIn("delivery/quick-start", names)
             self.assertIn("delivery/release_applier.py", names)
             self.assertIn("delivery/online/fetch-release", names)
+            self.assertIn("delivery/quick-start", names)
             self.assertNotIn("delivery/offline/import-bundle", names)
             self.assertNotIn("delivery/offline/build-bundle", names)
             self.assertNotIn("release/build-assets", names)
@@ -578,6 +580,10 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertEqual(
                 0o755,
                 archive.getmember("delivery/apply-release").mode,
+            )
+            self.assertEqual(
+                0o755,
+                archive.getmember("delivery/quick-start").mode,
             )
             self.assertEqual(
                 0o644,
@@ -597,6 +603,7 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("images/edge-hardware-images.tar", archive.getnames())
             self.assertIn("delivery/offline/bundle_importer.py", archive.getnames())
             self.assertIn("delivery/offline/import-bundle", archive.getnames())
+            self.assertNotIn("delivery/quick-start", archive.getnames())
             self.assertNotIn("delivery/online/fetch-release", archive.getnames())
             package = json.load(archive.extractfile("release-package.json"))
             self.assertEqual("images/edge-hardware-images.tar", package["imageArchive"])

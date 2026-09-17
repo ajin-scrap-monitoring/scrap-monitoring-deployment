@@ -267,6 +267,8 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | 실행 파일 | 입력 | 성공 조건 |
 | --- | --- | --- |
 | `delivery/online/fetch-release` | `--version`, `--target`, `--scenario`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
+| `delivery/install-container-runtime` | `--target {edge,server}` | `scrap-admin` 시스템 그룹, 공통 배포 도구와 고정 Container runtime 설치 및 version 검증, Server의 고정 PKI 도구 설치와 version 검증 |
+| `delivery/quick-start` | `--version`, `--target`, 선택적 `--scenario`, `--output` | Online Package 취득, 적용과 systemd active 상태 확인 |
 | `delivery/offline/import-bundle` | `--version`, `--target`, `--scenario`, `--bundle`, `--checksums` | 검증된 대상과 시나리오 image의 local import |
 | `delivery/verify-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums` | checksum, archive, Manifest와 대상과 시나리오 검증 |
 | `delivery/generate-auth-secret` | 인증 경계, 식별자와 출력 경로 | 독립적인 256-bit token bundle 생성 |
@@ -274,7 +276,7 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 digest 폐기 |
 | `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자, digest와 권한 검증 |
 | `delivery/validate-environment` | 대상, 시나리오와 실제 환경 파일 | Schema version, 변수 집합, 시나리오와 빈 값 검증 |
-| `delivery/apply-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums`, `--mode` | 재검증, Version staging, 목표 상태 전환과 상태 확인 |
+| `delivery/apply-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums`, `--mode` | host group ID 파생값 동기화, 재검증, Version staging, 목표 상태 전환과 상태 확인 |
 
 모든 실행 파일은 입력 오류, 검증 실패와 미구현 동작에 성공 code를 반환하지 않는다. 실패 메시지는
 실패한 단계와 대상을 식별할 수 있어야 하며 자격 증명과 secret 값을 출력하지 않는다.

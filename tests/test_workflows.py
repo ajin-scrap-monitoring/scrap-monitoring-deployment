@@ -95,22 +95,12 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertIn("release/validate-targets", commands)
         self.assertIn("release/verify-assets", commands)
 
-    def test_ci_and_release_use_the_same_validation_toolchain(self) -> None:
-        ci_steps = load_workflow("ci.yml")["jobs"]["ci"]["steps"]
-        release_steps = load_workflow("release.yml")["jobs"]["build"]["steps"]
-        setup_names = {
-            "Set up Node.js",
-            "Set up Go",
-            "Set up uv",
-            "Set up Docker Compose",
-        }
-        ci_setup = {
-            step["name"]: step for step in ci_steps if step["name"] in setup_names
-        }
-        release_setup = {
-            step["name"]: step for step in release_steps if step["name"] in setup_names
-        }
-        self.assertEqual(ci_setup, release_setup)
+    def test_ci_and_release_use_the_container_validation_entrypoint(self) -> None:
+        for workflow_name, job_name in (("ci.yml", "ci"), ("release.yml", "build")):
+            with self.subTest(workflow=workflow_name, job=job_name):
+                steps = load_workflow(workflow_name)["jobs"][job_name]["steps"]
+                commands = "\n".join(step.get("run", "") for step in steps)
+                self.assertIn("tests/validate-container", commands)
 
 
 if __name__ == "__main__":
