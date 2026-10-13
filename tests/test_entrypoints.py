@@ -10,6 +10,9 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "delivery" / "apply-release",
     REPOSITORY / "delivery" / "install-container-runtime",
+    REPOSITORY / "delivery" / "install-environment",
+    REPOSITORY / "delivery" / "install-dashboard-configuration",
+    REPOSITORY / "delivery" / "validate-dashboard-configuration",
     REPOSITORY / "delivery" / "quick-start",
     REPOSITORY / "delivery" / "verify-release",
     REPOSITORY / "delivery" / "online" / "fetch-release",

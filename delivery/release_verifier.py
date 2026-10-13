@@ -34,6 +34,7 @@ COMMON_MEMBERS = {
     "requirements-tooling.txt",
     "delivery/README.md",
     "delivery/apply-release",
+    "delivery/auth-secret-permissions.sh",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
     "delivery/release_applier.py",
@@ -49,6 +50,14 @@ COMMON_MEMBERS = {
     "release/validate-manifest",
     "release-manifest.json",
     "release-package.json",
+}
+TARGET_MEMBERS = {
+    "edge": set(),
+    "server": {
+        "delivery/dashboard_configuration.py",
+        "delivery/install-dashboard-configuration",
+        "delivery/validate-dashboard-configuration",
+    },
 }
 MODE_MEMBERS = {
     "online": {
@@ -379,7 +388,7 @@ def validate_payload(
     mode: str,
     notices: set[str],
 ) -> None:
-    required = COMMON_MEMBERS | MODE_MEMBERS[mode] | notices
+    required = COMMON_MEMBERS | TARGET_MEMBERS[target] | MODE_MEMBERS[mode] | notices
     required.add(f"targets/{target}/compose.yaml")
     if target == "server":
         required.add("pki/validate-ca-state")

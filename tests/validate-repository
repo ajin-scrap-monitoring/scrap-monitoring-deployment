@@ -4,13 +4,15 @@ set -euo pipefail
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repository}"
 
-node_modules/.bin/markdownlint-cli2 "**/*.md"
+node tools/lint-markdown.mjs
+node --test tests/test_markdown.mjs
 npm audit --audit-level=high
 .venv/bin/yamllint .github/workflows .yamllint.yml targets
 find release pki/config -type f -name '*.json' -print0 \
   | xargs -0 jq empty
-jq empty package.json package-lock.json
+jq empty .markdownlint.json package.json package-lock.json
 .venv/bin/ruff check \
+  delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \
   delivery/release_verifier.py \
@@ -22,6 +24,7 @@ jq empty package.json package-lock.json
   release/verify-assets \
   tests
 .venv/bin/ruff format --check \
+  delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \
   delivery/release_verifier.py \
@@ -39,9 +42,14 @@ for target in edge server; do
     docker compose -f "targets/${target}/${scenario}/compose.yaml" config --quiet
   done
 done
-shellcheck \
+shellcheck --source-path=SCRIPTDIR \
   delivery/apply-release \
+  delivery/auth-secret-permissions.sh \
   delivery/install-container-runtime \
+  delivery/install-environment \
+  delivery/install-dashboard-configuration \
+  delivery/validate-dashboard-configuration \
+  delivery/runtime-requirements.sh \
   delivery/quick-start \
   delivery/generate-auth-secret \
   delivery/install-auth-secret \

@@ -14,19 +14,51 @@ Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계�
 환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
 대상과 시나리오별 `.env.example`은 공개 schema이고 실제 값은 대상 장비의 Git 외부 파일에서 관리한다.
 `delivery/validate-environment`는 실제 값을 출력하지 않고 schema version, 변수 집합과 빈 값을
-검사한다. `delivery/apply-release`는 host에서 파생한 group ID를 실제 환경 파일에 동기화한다.
+검사한다. `delivery/install-environment`는 환경 파일을 최초 설치하고 재실행 시 기존 값을 보존한다.
+설치 권한과 동기화 규칙은 [docs/configuration-management.md](configuration-management.md)를 따른다.
+`delivery/apply-release`는 host에서 파생한 group ID를 실제 환경 파일에 동기화한다.
 systemd unit은 실제 환경 파일, Release에서 생성한 `release.env`와 Edge generated environment 파일을
 Compose 실행 환경으로 사용한다.
+
+`delivery/install-dashboard-configuration`과 `delivery/validate-dashboard-configuration`은 Server의
+Dashboard runtime JSON 최초 설치, 기존 파일 보존, 필드와 식별자 검증, expected 식별자 비교와
+파일 권한 검증을 구현한다. 두 Bash 진입점은 Python 표준 라이브러리만 사용하는
+`delivery/dashboard_configuration.py`를 실행한다. 설치는 directory 및 파일 lock과 no-clobber
+전환을 사용하며 실패 시 기존 설정을 변경하지 않는다. 재현 명령과 설정 소유권은
+[docs/configuration-management.md](configuration-management.md)의 Dashboard 설정을 따른다.
+두 도구와 Python module은 hardware 및 simulation Server의 Online Package와 Offline Bundle에만
+포함된다. Compose mount, Backend 설정 자동 주입, Release 적용 및 systemd와의 연결은 구현되지
+않았다.
+
+`tests/test_dashboard_configuration.py`는 식별자 경계, 잘못된 JSON, 기존 byte 및 inode 보존,
+동시 최초 설치, file mode, 실제 root 소유권과 link 경로 거부를 검증한다. 별도 Ubuntu test host의
+read-only root filesystem Container에서 생성한 JSON의 UID `101` 읽기와 root의 read-only bind
+mount 쓰기 거부를 확인한다. 이 검증은 Dashboard의 HTTP 및 HTTPS 응답과 Backend 연동 검증을
+대체하지 않는다.
 
 Edge별 Backend Bearer token과 Camera별 Camera Media Service Bearer token은 배포 도구가 생성하고
 rotation하는 독립된 opaque secret으로 관리한다. 배포 도구는 256-bit token bundle 생성, Edge
 원문 token 설치, Server SHA-256 digest registry 설치, 2개 digest 중첩 rotation과 이전 digest
 폐기를 구현한다. 대상별 systemd unit은 Compose 시작 전에 인증 파일을 검증한다.
+`delivery/auth-secret-permissions.sh`는 service별 읽기 그룹 조회와 생성, 소유권 및 mode 적용과
+검증을 제공한다. 설치, rotation과 이전 digest 폐기는
+[docs/configuration-management.md](configuration-management.md)의 접근 권한을 유지한다. 같은
+credential의 재설치는 기존 파일을 교체하지 않는다. 설치 도구는 symbolic link와 hard link 경로를
+거부하고 대상 directory의 lock으로 변경을 직렬화한다. Container supplementary group 연결과
+파일 교체 후 소비 service의 재생성 또는 reload는 실제 Compose service가 없어 구현되지 않았다.
+
+`tests/test_auth_secret_permissions.py`는 격리한 root Validation container에서 실제 그룹 생성,
+non-root 읽기, 쓰기 및 다른 읽기 그룹의 접근 거부와 잘못된 소유권 및 그룹 검출을 검증한다.
+시험용 `--root`는 해당 fixture root의 소유자와 그룹을 사용하며 host 계정을 변경하지 않는다.
+별도 Ubuntu test host의 실제 Docker Compose file secret 검증은 supplementary group 읽기,
+그룹 불일치의 읽기 거부와 root의 read-only mount 쓰기 거부를 확인한다. 이 검증은 실제 component의
+인증 연동이나 token rotation 적용 완료를 대체하지 않는다.
 
 `delivery/apply-release`는 Package mode, scenario, host architecture와 image platform을 검증하고 취득 전용
 파일을 제외한 실행 payload를 `<version>-<scenario>` 불변 경로에 staging한다. Manifest에서 release.env를,
 Edge 설정 원본에서 CONFIG_SHA256을 생성하고 환경, secret과 Compose를 검증한 뒤 current와
-previous를 원자적으로 전환한다. systemd와 Compose 실행 상태가 실패하면 이전 link, Edge 파생
+previous를 원자적으로 전환한다. Compose 상태 검사는 모든 Container의 `running`과 health check가
+있는 Container의 `healthy`를 요구한다. systemd와 Compose 실행 상태가 실패하면 이전 link, Edge 파생
 설정과 Server 인증서를 복구한다.
 
 `delivery/verify-release`는 asset checksum, archive 경로와 파일 형식, descriptor, Manifest,
@@ -53,38 +85,69 @@ target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 �
 `targets`는 target과 `hardware`, `simulation` scenario로 분리되어 있다. Release manifest는
 시나리오별 component 집합을 명시하고, Package에는 선택한 scenario source tree만 표준
 `targets/<target>` 경로로 포함한다. systemd와 Compose 실행 경로는 scenario와 무관하게 유지한다.
-현재 Compose service는 외부 Component 실행 계약이 없어서 비어 있다. simulation 환경 파일은
+현재 Compose service는 전체 시스템의 호환 실행 계약이 충족되지 않아 비어 있다. simulation 환경 파일은
 Server의 LiDAR별 IP와 공통 UDP 8089, Visualizer publish address, Edge의 LiDAR endpoint와 synthetic Camera
-device 입력을 정의한다. 현재 Simulator Server Release는 LiDAR별 IP에 공통 UDP 8089를 bind하는 실행
-계약을 제공하지 않으므로 실제 service image, health check와 Compose 계약은 포함하지 않는다.
-simulation 구성과 적용 순서는 [Simulation 배포](simulation-deployment.md)를 따른다.
+device 입력을 정의한다. 현재 Edge 환경 schema와 설정 검증은 Edge v1 계약을 사용하며 v2 runtime
+JSON을 소비하지 않는다. 배포 기준의 v2 연동에 필요한 runtime JSON 입력, v1과 분리된 socket 및
+storage 연결과 목표 Compose는 구현되지 않았다. simulation 구성과 적용 순서는
+[docs/simulation-deployment.md](simulation-deployment.md)를 따른다.
 
-Edge Platform `v0.1.1`의 ARM64 image 5개와 Dashboard `v0.1.2`의 AMD64 image 1개가
-GHCR에 존재한다. Backend와 Camera Media Service는 배포 Release image를 제공하지
-않으므로 실제 통합 version manifest와 Release는 없다.
-
-Monitoring Server에는 Root CA 인증서, Intermediate CA와 `step-ca` 상태가 구성되어 있고 1년 Server
-인증서 발급 정책이 검증되어 있다. Edge 장비의 OS trust store와 관리자 MacBook의 System
-Keychain에는 운영 Root CA trust가 등록되어 있다. Windows PC의 Client trust 등록, Camera Edge
-Agent Container의 Root CA mount, component가 포함된 Docker Compose 정의와 외부 HTTPS 및 WSS
-검증은 아직 없다. 두 배포 대상 host에는 Docker Engine, Docker Compose plugin과 containerd가
-설치되어 있고 Docker daemon의 부팅 자동 시작과 로그 제한이 구성되어 있다.
+실제 통합 version manifest와 Release는 없다. 실제 장비에서 전체 시스템을 연결하는 통합 수락
+검사는 완료되지 않았다.
 
 ## Component 연동 상태
 
-| Component | 확인된 계약 | 미완료 사항 |
-| --- | --- | --- |
-| Simulator Repository | `v0.3.2` Public AMD64 Simulation Server와 Visualizer, ARM64 Camera Edge Bridge image, V4L2 loopback host 구성과 90 frame 검사 | LiDAR별 IP에 공통 UDP 8089을 bind하는 Simulation Server Release와 통합 수락 검사 |
-| Edge Platform | `v0.1.1`, ARM64 image 5개, UDS 처리, HTTPS 측정과 heartbeat, WSS Camera, file token과 Compose 예제 | Private Package 예외, read-only pull 인증, secret 소유권, Root CA 입력과 현장 검증 |
-| Backend | AMD64 Dockerfile, `/api/v1/metrics/ingest`, `X-Edge-API-Key`, health와 readiness, Browser session API | Release image, Bearer digest registry, Edge schema, 멱등 ACK, heartbeat, 운영 DB와 인증 강화 |
-| Camera Media Service | AMD64 Dockerfile, Camera별 Bearer 인증, 원문 token JSON 환경변수와 binary JPEG WebSocket ingest | Release image, digest registry file, health, Browser 전달, 녹화와 운영 검증 |
-| Dashboard Nginx | `v0.1.2` Public AMD64 image, 정적 파일, health, TLS와 runtime reverse proxy 설정 입력 | 승인된 Backend API, SSE, WHEP, upstream, timeout과 CSP 계약 |
+확인한 외부 source 기준은 5개다. 각 기준은 원격 `main`의 full Git commit으로 고정한다.
 
-Backend의 현재 인증, 요청 본문과 response는 Edge Platform 전송 계약과 일치하지 않는다.
-Heartbeat endpoint는 Backend에 존재하지 않는다. Backend Browser session은 기본 사용자,
-process memory 저장과 누락을 허용하는 Cross-Site Request Forgery (CSRF) 검사 때문에 운영 계약으로
-사용할 수 없다. Camera Media Service는 Backend 직접 연결 설정에 빈 값만 허용하고 배포 도구가
-생성하는 digest registry를 읽지 않는다.
+| Repository | 확인한 source |
+| --- | --- |
+| Simulator | [d0e4b3f3b153c0709e8b333fb3ee425c0aec3619](https://github.com/ajin-scrap-monitoring/scrap-monitoring-simulator/tree/d0e4b3f3b153c0709e8b333fb3ee425c0aec3619) |
+| Edge Platform | [69a667b57325432d3511a4597b7d3552ad09b42b](https://github.com/ajin-scrap-monitoring/ajin-edge-platform/tree/69a667b57325432d3511a4597b7d3552ad09b42b) |
+| Backend | [bf89cd334398ba558af21a2ad8009cf1c7040f14](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/bf89cd334398ba558af21a2ad8009cf1c7040f14) |
+| Camera Media Service | [d84e659e016bc765ff3605f2ff26cc95fa164553](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/tree/d84e659e016bc765ff3605f2ff26cc95fa164553) |
+| Dashboard | [c506ec09586881344af7ea0b467fd3eced8c33b9](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/c506ec09586881344af7ea0b467fd3eced8c33b9) |
+
+| Component | 고정 source의 계약 | 배포 미완료 사항 |
+| --- | --- | --- |
+| Simulator Repository | `v0.5.0` Public AMD64 Simulation Server와 Visualizer, ARM64 Camera Edge Bridge image, LiDAR별 IP와 공통 UDP 8089, synthetic Motion JPEG (MJPEG) stream, Video4Linux2 (V4L2) host 구성과 90 frame 검사 | 통합 Compose 등록과 전체 시스템 수락 검사 |
+| Edge Platform | `v0.1.1` ARM64 image 5개, file token과 Camera WSS, 별도 v2 processing, uplink, orchestrator와 runtime JSON | v2 Release image, v1과 v2 배포 설정 분리, Private Package 예외, secret 권한 적용, 실제 fill algorithm과 clock 검증 |
+| Backend | AMD64 Dockerfile, v2 Bearer ingest, 저장 후 멱등 Acknowledgement (ACK), monitoring snapshot과 Server-Sent Events (SSE), Media 제어 Application Programming Interface (API), health와 readiness | Release image, file 기반 token 입력, 운영 DB와 session, Browser 역할과 필수 CSRF 검증, ingest request limit |
+| Camera Media Service | AMD64 Dockerfile, Camera별 Bearer binary JPEG ingest, 원문 token JSON, 내부 HTTP API, MJPEG live와 MP4 clip, recording policy와 retention | Release image, digest registry file, health 계약, secret 권한 적용과 storage 소유권, 통합 영상 권한 검증 |
+| Dashboard Nginx | `v0.1.2` Public AMD64 image, 정적 파일, health, TLS와 runtime reverse proxy 설정 입력 | 연동 source의 원격 반영과 Release, runtime 설정 통합 검증, upstream, timeout과 Content Security Policy (CSP) 검증 |
+
+Simulator Server와 Visualizer의 상태 endpoint는 `/status`다. Visualizer는 `/visual/v1/stream`과
+`/camera/v1/stream`에서 같은 canonical scene의 시각화와 1920 x 1080, 30 Frames Per Second (FPS)
+MJPEG stream을 제공한다. Camera Edge Bridge의 host 장치는 `/dev/video42`이고 consumer 경로는
+`/dev/scrap-synthetic-camera`다. Host V4L2의 `exclusive_caps=0`과 `sustain_framerate=0`이 필요하다.
+
+Edge와 Backend의 수신 경로 및 저장 ACK 계약은
+[docs/deployment-contract.md](deployment-contract.md)의 Component 연동을 따른다.
+Edge v2의 fill algorithm은 구현되지 않아
+`fill_estimate=null`과 `FILL_METHOD_NOT_IMPLEMENTED`를 사용한다. 측정하지 않은 clock은
+`UNSYNCED`로 표시한다.
+
+현재 인증 입력은 배포 도구와 일치하지 않는다. Backend는 `EDGE_V2_DEVICES` JSON의 원문 token을,
+Camera Media Service는 `EDGE_AUTH_SECRET` JSON의 원문 token을 읽으며 digest registry file을 읽지
+않는다. Backend는 Media 연결에 `MEDIA_SERVICE_URL`과 `MEDIA_API_TOKEN`을 요구하지만 Camera Media
+Service의 내부 HTTP API는 Bearer 인증을 사용하지 않는다. Backend의 `MEDIA_API_TOKEN` 필수 조건은
+배포의 내부 통신 기준과 일치하지 않아 외부 Repository에서 해소해야 한다.
+고정된 Backend source의 Browser session은 기본 사용자,
+process memory 저장과 누락을 허용하는 Cross-Site Request Forgery (CSRF) 검사를 사용하므로 운영
+인증 계약이 충족되지 않는다.
+
+Dashboard의 로컬 작업 트리는 v2 모니터링, MJPEG live, MP4 clip 연동과 runtime JSON 로딩을 제공하며
+해당 변경은 원격 `main`과 Release image에 반영되지 않았다. 연동 경로와 proxy 동작은
+[docs/deployment-contract.md](deployment-contract.md)의 Browser 영상과 모니터링 기준을 따른다.
+현재 Release workflow는 `APP_VERSION`만 명시적으로 전달하며 나머지 build 입력은 Dockerfile
+기본값을 사용한다. 식별자의 설정 소유권은
+[docs/configuration-management.md](configuration-management.md)를 따른다.
+
+Dashboard의 실제 service 통합 검증에는 session, synthetic 입력, MJPEG, v2 SSE, MP4 Range,
+다운로드와 삭제 후 `410` 성공 결과가 있다. 내부 공유 token을 제거한 Backend 연결, 실제 HTTPS
+설정과 최신 로컬 변경 전체의 최종 통합 검증은 완료되지 않았다. Media 접근 검사는 유효한 session만
+확인하며 camera 또는 pit별 접근 권한은 제공하지 않는다.
+
+Edge v2 ingest의 최대 request byte는 미확정이며 v1의 64 KiB 제한을 v2 승인값으로 사용하지 않는다.
 
 Edge Platform의 5개 GHCR Package는 모두 Private이다. Organization 정책은 Public Package를
 기본으로 사용하고 배포 제한이 있는 경우에만 사유와 인증 경계를 기록하도록 요구한다. 현재
@@ -98,6 +161,7 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | Repository 경계 | Edge와 Server를 함께 관리하는 단일 통합 배포 Repository |
 | 배포 단위 | 독립적으로 적용 가능한 `edge`와 `server` |
 | 배포 시나리오 | target별 `hardware`와 `simulation` |
+| 연동 기준과 구현 순서 | [docs/project-spec.md](project-spec.md)의 배포 대상 기준 |
 | 목표 상태 | `targets/<target>/<scenario>` 아래의 Docker Compose와 host 연동 |
 | 배포 경로 | 같은 목표 상태를 사용하는 Outbound Pull과 Offline Bundle |
 | host 수명 주기 | Docker Compose를 시작하고 필수 mount를 확인하는 systemd 경계 |
@@ -126,9 +190,9 @@ Repository는 해당 image를 통합 Release에 포함하지 않는다.
 | 애플리케이션 인증 | Edge별 Backend token과 Camera별 Media token을 사용하는 Bearer 인증 |
 | Token 수명 주기 | 배포 도구가 credential Bootstrap과 명시적 rotation에서 생성 및 설치 |
 | Token Server 저장 | 식별자별 SHA-256 digest 1개, rotation 중 최대 2개 |
-| 내부 service 인증 | UDS 권한 또는 private Compose network, 공유 Bearer token 미사용 |
+| 내부 service 연결 | UDS 권한 또는 private Compose network |
 | Browser 인증 | TLS, Backend 사용자 session과 CSRF 보호, reverse proxy 공용 token 미사용 |
-| Docker Compose secret | Service별 file secret 연결, host 파일 권한을 저장 보호 경계로 사용 |
+| Docker Compose secret | [docs/configuration-management.md](configuration-management.md)의 비밀정보 접근 권한 기준 |
 | 비밀정보 | Git과 Release 외부의 대상별 host 파일 |
 | 영속 데이터 | container image와 분리한 host storage |
 | Private PKI | 오프라인 Root CA와 Monitoring Server의 `step-ca` Intermediate CA를 사용하는 2단계 구조 |
@@ -146,7 +210,7 @@ scrap-monitoring-deployment/
 |   `-- workflows/
 |       |-- ci.yml
 |       `-- release.yml
-|-- .markdownlint-cli2.jsonc
+|-- .markdownlint.json
 |-- .yamllint.yml
 |-- package-lock.json
 |-- package.json
@@ -157,14 +221,20 @@ scrap-monitoring-deployment/
 |   |-- online/
 |   |   `-- fetch-release
 |   |-- apply-release
+|   |-- auth-secret-permissions.sh
+|   |-- dashboard_configuration.py
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
 |   |-- install-container-runtime
+|   |-- install-dashboard-configuration
+|   |-- install-environment
 |   |-- quick-start
 |   |-- release_applier.py
 |   |-- release_verifier.py
+|   |-- runtime-requirements.sh
 |   |-- retire-auth-secret
 |   |-- validate-auth-secrets
+|   |-- validate-dashboard-configuration
 |   |-- validate-environment
 |   `-- verify-release
 |-- docs/
@@ -227,16 +297,21 @@ scrap-monitoring-deployment/
 |   |-- release/
 |   |-- systemd/
 |   |-- test_apply_release.py
+|   |-- test_auth_secret_permissions.py
 |   |-- test_auth_secrets.py
 |   |-- test_configuration.py
+|   |-- test_dashboard_configuration.py
 |   |-- test_delivery_integration.py
 |   |-- test_delivery_release.py
 |   |-- test_entrypoints.py
+|   |-- test_environment_installation.py
+|   |-- test_markdown.mjs
 |   |-- test_pki.py
 |   |-- test_public_content.py
 |   |-- test_release.py
 |   |-- test_release_targets.py
 |   |-- test_repository.py
+|   |-- test_runtime_requirements.py
 |   |-- test_workflows.py
 |   |-- validate-container
 |   |-- validate-repository
@@ -244,6 +319,7 @@ scrap-monitoring-deployment/
 |-- tools/
 |   |-- go.mod
 |   |-- go.sum
+|   |-- lint-markdown.mjs
 |   `-- install-validation
 |-- AGENTS.md
 |-- Dockerfile.validation
@@ -289,12 +365,21 @@ Root CA 개인키는 암호화하여 Monitoring Server 밖의 오프라인 저�
 
 두 배포 대상은 Docker 공식 APT 저장소의 Docker Engine `29.8.0`, Docker Compose plugin `5.5.1`과
 containerd `2.3.5`를 사용한다. `delivery/install-container-runtime --target <edge|server>`는 Debian
-또는 Ubuntu에서 대상 architecture, `scrap-admin` 시스템 그룹과 공통 배포 도구를 검증한 뒤
+또는 Ubuntu에서 대상 architecture와 실행 중인 systemd를 확인한다. 공통 배포 도구의 설치와 최소
+version 검증 후 `scrap-admin` 시스템 그룹을 생성하고
 `docker-ce`, `docker-ce-cli`, `containerd.io`와 `docker-compose-plugin`의 고정 version을 설치하고
 실행 version을 검증한다. Server는 Smallstep APT repository에서 `step` CLI `0.30.6`과 `step-ca`
 `0.30.2`도 설치하고 version을 검증한다. Docker daemon은 root 권한의 systemd 서비스로 실행하며
-대상 사용자를 `docker` 그룹에 추가하지 않는다. Docker Buildx는 기능별 Repository CI의
-멀티플랫폼 image 빌드에 사용하고 대상 host에는 설치하지 않는다.
+대상 사용자를 `docker` 그룹에 추가하지 않는다. APT의 추천 package는 설치하지 않아 Docker CLI가
+추천하는 Buildx를 추가하지 않는다. Docker Buildx는 기능별 Repository CI의 멀티플랫폼 image 빌드에
+사용하고 대상 host에는 설치하지 않는다.
+
+`delivery/runtime-requirements.sh`는 직접 의존성 표의 최소 version과 runtime의 정확한 version을
+검사한다. APT package 선택은 고정 version 뒤의 Debian package revision만 허용하며 prefix가
+비슷한 다른 version과 prerelease를 제외한다. Host 공통 도구는 운영체제의 보안 업데이트를 사용한다.
+APT 변경 전 `.list`와 `.sources`의 기존 Docker 및 Smallstep repository를 검사한다. 일치하는
+repository는 source와 서명 key를 변경하지 않고 재사용하며 중복 또는 호환되지 않는 정의는
+중단한다. 기존 설정이 없을 때만 repository를 추가한다.
 
 서버의 Docker 컨테이너 로그는 `local` driver와 `20m` `max-size`, `5` `max-file`을 사용한다.
 엣지는 `local` driver와 `10m` `max-size`, `3` `max-file`을 사용한다. systemd 저널은 서버가
@@ -308,17 +393,17 @@ containerd `2.3.5`를 사용한다. `delivery/install-container-runtime --target
 | GNU Coreutils | `8.32` 이상 | CSPRNG byte 변환, file 설치, digest와 권한 처리 | [GNU Coreutils](https://www.gnu.org/software/coreutils/) | GPL-3.0-or-later |
 | GNU Findutils | `4.8` 이상 | credential 임시 파일 정리 | [GNU Findutils](https://www.gnu.org/software/findutils/) | GPL-3.0-or-later |
 | OpenSSL | `3.0.2` 이상 | CA fingerprint, 인증서 chain, SAN, key와 유효기간 검증 | [OpenSSL](https://www.openssl.org/) | Apache-2.0 |
-| Python | `3.10` 이상 | 대상 host의 Release Package 구조와 Manifest 검증 | [Python](https://www.python.org/) | PSF-2.0 |
+| Python | `3.10` 이상 | 대상 host의 Release Package, Manifest와 Dashboard runtime JSON 검증 | [Python](https://www.python.org/) | PSF-2.0 |
 | `curl` | `7.81.0` 이상 | GitHub Release에서 Online Package와 checksum을 HTTPS로 취득 | [curl](https://curl.se/) | curl license |
 | `jq` | `1.6` 이상 | Credential metadata와 digest registry 검증 및 갱신 | [jqlang](https://jqlang.org/) | MIT |
-| `flock` | util-linux `2.37` 이상 | Server digest registry 갱신 직렬화 | [util-linux](https://github.com/util-linux/util-linux) | GPL-2.0-or-later |
+| `flock` | util-linux `2.37` 이상 | Credential 설치와 digest registry 변경 직렬화 | [util-linux](https://github.com/util-linux/util-linux) | GPL-2.0-or-later |
 | `step` CLI | `0.30.6` | PKI Bootstrap, Server 인증서 요청과 갱신 | [`smallstep/cli`](https://github.com/smallstep/cli) | Apache-2.0 |
 | `step-ca` | `0.30.2` | Intermediate CA를 이용한 Server 인증서 발급 | [`smallstep/certificates`](https://github.com/smallstep/certificates) | Apache-2.0 |
 | Docker Engine | `29.8.0` | 대상 Container runtime | [Moby](https://github.com/moby/moby) | Apache-2.0 |
 | Docker Compose plugin | `5.5.1` | 대상 Compose 구성 적용 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
 | containerd | `2.3.5` | 대상 Container runtime 관리 | [containerd](https://github.com/containerd/containerd) | Apache-2.0 |
 | GNU Privacy Guard | Debian 또는 Ubuntu 제공 version | Docker APT repository 서명 key 설치 | [GnuPG](https://gnupg.org/) | GPL-3.0-or-later |
-| shadow suite (`passwd` package) | Debian 또는 Ubuntu 제공 version | `scrap-admin` 시스템 그룹 생성 | [shadow](https://github.com/shadow-maint/shadow) | BSD-3-Clause |
+| shadow suite (`passwd` package) | Debian 또는 Ubuntu 제공 version | 배포 관리 그룹과 credential 읽기 그룹 생성 | [shadow](https://github.com/shadow-maint/shadow) | BSD-3-Clause |
 
 ## CI와 Release 도구
 
@@ -343,8 +428,7 @@ containerd `2.3.5`를 사용한다. `delivery/install-container-runtime --target
 | `jsonschema` | `4.26.0` | Release manifest JSON Schema 검증 | [PyPI](https://pypi.org/project/jsonschema/) | MIT |
 | PyYAML | `6.0.3` | GitHub Actions workflow 정책 테스트 | [PyPI](https://pypi.org/project/PyYAML/) | MIT |
 | Ruff | `0.16.4` | Python lint와 format 검사 | [PyPI](https://pypi.org/project/ruff/) | MIT |
-| `markdownlint-cli2` | `0.23.2` | Markdown 검사 | [npm](https://www.npmjs.com/package/markdownlint-cli2) | MIT |
-| `smol-toml` | `1.7.1` | Markdown 설정 parsing용 보안 고정 전이 의존성 | [npm](https://www.npmjs.com/package/smol-toml) | BSD-3-Clause |
+| `markdownlint` | `0.41.1` | Markdown 검사 | [markdownlint](https://github.com/DavidAnson/markdownlint/tree/v0.41.1) | MIT |
 | `yamllint` | `1.38.0` | YAML 검사 | [PyPI](https://pypi.org/project/yamllint/) | GPL-3.0 |
 | `jq` | `1.6` | JSON 문법 검사 | [jqlang](https://jqlang.org/) | MIT |
 | Docker Compose | `5.5.1` | Compose schema와 Manifest image 연결 검사 | [Docker Compose](https://github.com/docker/compose) | Apache-2.0 |
@@ -354,15 +438,23 @@ containerd `2.3.5`를 사용한다. `delivery/install-container-runtime --target
 
 모든 외부 GitHub Action은 표의 version tag가 가리키는 full commit SHA로 고정한다. Python
 전이 의존성은 hash가 포함된 `requirements-tooling.txt`, Node.js 전이 의존성은
-`package-lock.json`, Actionlint 전이 의존성은 `tools/go.sum`으로 고정한다. `smol-toml`은
-`package.json` override로 `1.7.1`에 고정한다.
+`package-lock.json`, Actionlint 전이 의존성은 `tools/go.sum`으로 고정한다.
+
+`tools/lint-markdown.mjs`는 Node.js 기본 file API로 Markdown 파일을 탐색하고 `markdownlint`의
+Promise API를 실행한다. `.git`, `.venv`와 `node_modules` directory를 제외하고 숨김 directory의
+문서와 Repository 내부 파일을 가리키는 Markdown symbolic link를 검사한다. Directory symbolic
+link는 탐색하지 않고 Repository 외부를 가리키거나 target이 없는 Markdown symbolic link는
+거부한다. `.markdownlint.json`은 `MD013`만 비활성화한다. 설정 오류, 검사 대상 누락과 Markdown
+규칙 위반은 실패를 반환한다. `tests/test_markdown.mjs`는 파일 탐색, 설정, 진단과 command 종료를
+검증한다. CI는 `npm audit --audit-level=high` 기준을 유지한다.
 
 ## 미확정 구현 결정
 
 - Edge Platform Private Package의 예외 승인 또는 Public 전환
-- Secret file과 non-root Component UID 사이의 소유권 및 mode
 - 실제 Release manifest에 포함할 Backend와 Camera Media Service image digest
-- Backend의 Edge measurement 저장 변환과 heartbeat 상태 model
+- Backend와 Camera Media Service의 file 기반 token 입력
+- Backend의 내부 Media 연결에서 `MEDIA_API_TOKEN` 필수 조건 해소
+- Edge v2 ingest request byte 제한
 - Backend의 운영 Database version, migration과 session 저장 방식
-- Camera Media Service의 Browser 전달 방식
+- Dashboard runtime JSON을 지원하는 검증한 Release image
 - Database migration, backup 선행 조건과 rollback 허용 범위

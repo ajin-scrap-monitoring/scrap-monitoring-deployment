@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'Usage: install-environment --target <edge|server> [--scenario <hardware|simulation>] [--root <directory>]'
+}
+
+target=""
+scenario="hardware"
+root_directory="/"
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --help) usage; exit 0 ;;
+    --target|--scenario|--root)
+      [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+      case "$1" in
+        --target) target="$2" ;;
+        --scenario) scenario="$2" ;;
+        --root) root_directory="$2" ;;
+      esac
+      shift 2
+      ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+if [[ "${target}" != "edge" && "${target}" != "server" ]] \
+  || [[ "${scenario}" != "hardware" && "${scenario}" != "simulation" ]]; then
+  usage >&2
+  exit 2
+fi
+if [[ ! -d "${root_directory}" || -L "${root_directory}" ]]; then
+  printf '%s\n' 'host root must be an existing non-symbolic directory' >&2
+  exit 1
+fi
+root_directory="$(realpath -e -- "${root_directory}")"
+if [[ "${root_directory}" == "/" && "${EUID}" -ne 0 ]]; then
+  printf '%s\n' 'installing the host environment requires root privileges' >&2
+  exit 1
+fi
+if [[ "${root_directory}" == "/" ]] && ! getent group scrap-admin >/dev/null; then
+  printf '%s\n' "run install-container-runtime --target ${target} first" >&2
+  exit 1
+fi
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+template="${script_directory}/../targets/${target}/${scenario}/.env.example"
+configuration_directory="${root_directory%/}/etc/scrap-monitoring"
+environment_file="${configuration_directory}/${target}.env"
+owner_options=()
+if [[ "${root_directory}" == "/" ]]; then
+  owner_options=(-o root -g scrap-admin)
+fi
+for directory in "${root_directory%/}/etc" "${configuration_directory}"; do
+  if [[ -L "${directory}" || ( -e "${directory}" && ! -d "${directory}" ) ]]; then
+    printf '%s\n' "configuration path must be a non-symbolic directory: ${directory}" >&2
+    exit 1
+  fi
+done
+if [[ -L "${environment_file}" || ( -e "${environment_file}" && ! -f "${environment_file}" ) ]]; then
+  printf '%s\n' "environment path must be a non-symbolic regular file: ${environment_file}" >&2
+  exit 1
+fi
+if [[ -d "${configuration_directory}" ]]; then
+  if [[ "$(stat --format='%a' -- "${configuration_directory}")" != '750' ]]; then
+    printf '%s\n' "configuration directory mode must be 0750: ${configuration_directory}" >&2
+    exit 1
+  fi
+else
+  install -d "${owner_options[@]}" -m 0750 -- "${configuration_directory}"
+fi
+if [[ "${root_directory}" == "/" ]] \
+  && [[ "$(stat --format='%U:%G' -- "${configuration_directory}")" != 'root:scrap-admin' ]]; then
+  printf '%s\n' "configuration directory must be root:scrap-admin: ${configuration_directory}" >&2
+  exit 1
+fi
+
+lock_file="${configuration_directory}/.environment.lock"
+if [[ -L "${lock_file}" || ( -e "${lock_file}" && ! -f "${lock_file}" ) ]]; then
+  printf '%s\n' 'environment lock must be a non-symbolic regular file' >&2
+  exit 1
+fi
+if [[ -e "${lock_file}" ]] \
+  && [[ "$(stat --format='%h:%a' -- "${lock_file}")" != '1:600' ]]; then
+  printf '%s\n' 'environment lock must have one link and mode 0600' >&2
+  exit 1
+fi
+umask 077
+exec 9>>"${lock_file}"
+if [[ "$(stat --dereference --format='%h:%a' -- /proc/self/fd/9)" != '1:600' ]]; then
+  printf '%s\n' 'opened environment lock must have one link and mode 0600' >&2
+  exit 1
+fi
+flock --exclusive 9
+temporary_file=""
+cleanup() {
+  if [[ -n "${temporary_file}" && -f "${temporary_file}" && ! -L "${temporary_file}" ]]; then
+    find "${temporary_file}" -maxdepth 0 -type f -delete
+  fi
+}
+trap cleanup EXIT
+
+if [[ -e "${environment_file}" || -L "${environment_file}" ]]; then
+  if [[ -L "${environment_file}" || ! -f "${environment_file}" ]]; then
+    printf '%s\n' 'environment must be a non-symbolic regular file' >&2
+    exit 1
+  fi
+  if [[ "$(stat --format='%a' -- "${environment_file}")" != '640' ]]; then
+    printf '%s\n' 'environment file mode must be 0640' >&2
+    exit 1
+  fi
+  if [[ "${root_directory}" == "/" ]] \
+    && [[ "$(stat --format='%U:%G' -- "${environment_file}")" != 'root:scrap-admin' ]]; then
+    printf '%s\n' 'environment file must be root:scrap-admin' >&2
+    exit 1
+  fi
+  "${script_directory}/validate-environment" "${target}" "${scenario}" "${environment_file}"
+  printf '%s\n' "existing environment preserved: ${environment_file}"
+  exit 0
+fi
+
+temporary_file="$(mktemp "${configuration_directory}/.${target}.env.XXXXXX")"
+install "${owner_options[@]}" -m 0640 -- "${template}" "${temporary_file}"
+"${script_directory}/validate-environment" "${target}" "${scenario}" "${temporary_file}"
+mv --no-clobber --no-target-directory -- "${temporary_file}" "${environment_file}"
+if [[ -e "${temporary_file}" ]]; then
+  printf '%s\n' 'environment appeared during installation; existing file preserved' >&2
+  exit 1
+fi
+temporary_file=""
+printf '%s\n' "environment template installed; configure site values: ${environment_file}"

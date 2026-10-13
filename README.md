@@ -46,7 +46,7 @@ directory, camera device와 Root CA 파일, Server의 Backend와 Media storage d
 
 ### 4. Credential Bootstrap
 
-두 환경 파일의 `EDGE_ID`와 `CAMERA_ID`를 확정한 뒤 [delivery/README.md](delivery/README.md)의
+Edge 환경 파일의 `EDGE_ID`와 `CAMERA_ID`를 확정한 뒤 [delivery/README.md](delivery/README.md)의
 credential Bootstrap을 완료한다.
 
 ### 5. Server Release 적용
@@ -65,13 +65,10 @@ credential Bootstrap을 완료한다.
 ### Edge hardware configuration
 
 ```bash
-sudo install -d -o root -g scrap-admin -m 0750 /etc/scrap-monitoring
-sudo install -o root -g scrap-admin -m 0640 \
-  targets/edge/hardware/.env.example \
-  /etc/scrap-monitoring/edge.env
+sudo delivery/install-environment --target edge
 ```
 
-템플릿 설치 뒤 다음 15개 환경변수를 현장 값으로 설정하거나 확인한다.
+`/etc/scrap-monitoring/edge.env`의 다음 15개 환경변수를 현장 값으로 설정한다.
 
 | 환경변수 | 설정 또는 확인 값 |
 | --- | --- |
@@ -94,13 +91,10 @@ sudo install -o root -g scrap-admin -m 0640 \
 ### Server hardware configuration
 
 ```bash
-sudo install -d -o root -g scrap-admin -m 0750 /etc/scrap-monitoring
-sudo install -o root -g scrap-admin -m 0640 \
-  targets/server/hardware/.env.example \
-  /etc/scrap-monitoring/server.env
+sudo delivery/install-environment --target server
 ```
 
-템플릿 설치 뒤 다음 13개 환경변수를 현장 값으로 설정하거나 확인한다.
+`/etc/scrap-monitoring/server.env`의 다음 13개 환경변수를 현장 값으로 설정한다.
 
 | 환경변수 | 설정 또는 확인 값 |
 | --- | --- |
@@ -117,6 +111,9 @@ sudo install -o root -g scrap-admin -m 0640 \
 | `MEDIA_INGEST_PORT` | Camera Media Service 내부 WSS port |
 | `MEDIA_STORAGE_PATH` | Media persistent storage 경로 |
 | `MEDIA_MAX_FRAME_BYTES` | binary JPEG frame 최대 byte |
+
+Dashboard runtime 설정 파일의 설치는
+[docs/configuration-management.md](docs/configuration-management.md)의 Dashboard 설정을 따른다.
 
 ## 빠른 시작
 

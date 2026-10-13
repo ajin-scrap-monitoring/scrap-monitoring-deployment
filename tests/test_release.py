@@ -562,6 +562,7 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("delivery/validate-environment", names)
             self.assertIn("delivery/quick-start", names)
             self.assertIn("delivery/release_applier.py", names)
+            self.assertNotIn("delivery/install-dashboard-configuration", names)
             self.assertIn("delivery/online/fetch-release", names)
             self.assertIn("delivery/quick-start", names)
             self.assertNotIn("delivery/offline/import-bundle", names)
@@ -598,6 +599,13 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("pki/config/ca.template.json", names)
             self.assertIn("docs/configuration-management.md", names)
             self.assertIn("delivery/validate-environment", names)
+            self.assertIn("delivery/dashboard_configuration.py", names)
+            for entrypoint in (
+                "delivery/install-dashboard-configuration",
+                "delivery/validate-dashboard-configuration",
+            ):
+                self.assertIn(entrypoint, names)
+                self.assertEqual(0o755, archive.getmember(entrypoint).mode)
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(edge_offline, "r:gz") as archive:
             self.assertIn("images/edge-hardware-images.tar", archive.getnames())
@@ -609,6 +617,9 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertEqual("images/edge-hardware-images.tar", package["imageArchive"])
         with tarfile.open(server_offline, "r:gz") as archive:
             self.assertIn("images/server-hardware-images.tar", archive.getnames())
+            self.assertIn(
+                "delivery/install-dashboard-configuration", archive.getnames()
+            )
 
 
 if __name__ == "__main__":
