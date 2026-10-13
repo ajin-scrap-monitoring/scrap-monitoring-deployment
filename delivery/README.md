@@ -2,6 +2,22 @@
 
 이 디렉토리는 배포 asset 검증과 적용, 애플리케이션 인증 정보 수명 주기 도구를 제공한다.
 
+`install-container-runtime`은 대상 host의 배포 의존성을 설치하고 version을 검증한다.
+`install-environment`는 대상과 시나리오의 환경 파일을 설치하거나 기존 파일을 보존하고 검증한다.
+환경 파일의 소유권과 동기화는
+[docs/configuration-management.md](../docs/configuration-management.md)를 따른다.
+
+Dashboard 설정 도구는 2개다.
+
+| 실행 파일 | 역할 |
+| --- | --- |
+| `install-dashboard-configuration` | Server runtime JSON 최초 설치 또는 같은 식별자의 기존 파일 보존과 검증 |
+| `validate-dashboard-configuration` | 설치한 JSON, 접근 권한과 선택적 expected 식별자 검증 |
+
+설치 명령과 설정값은 [docs/configuration-management.md](../docs/configuration-management.md)의
+Dashboard 설정을 따른다. 실제 Compose 연결 상태는
+[docs/implementation.md](../docs/implementation.md)를 따른다.
+
 `verify-release`는 Package checksum과 archive 안전성을 검증하고 Package descriptor와
 Manifest의 version, target, scenario, mode, platform과 digest를 교차 검증한다.
 
@@ -18,7 +34,7 @@ Manifest의 version, target, scenario, mode, platform과 digest를 교차 검증
 | 실행 파일 | 역할 |
 | --- | --- |
 | `generate-auth-secret` | 256-bit opaque token과 metadata bundle 생성 |
-| `install-auth-secret` | Edge 원문 token 또는 Server digest 설치와 rotation 중첩 |
+| `install-auth-secret` | 전용 읽기 그룹, Edge 원문 token 또는 Server digest 설치와 rotation 중첩 |
 | `retire-auth-secret` | 연결 확인을 마친 이전 Server digest 폐기 |
 | `validate-auth-secrets` | 대상별 인증 파일, 식별자, digest와 권한 검증 |
 

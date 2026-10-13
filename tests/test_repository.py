@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -9,12 +10,19 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 class RepositoryStructureTest(unittest.TestCase):
     def test_required_paths_exist(self) -> None:
         required_paths = [
+            ".markdownlint.json",
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
             "package-lock.json",
             "package.json",
             "delivery/apply-release",
+            "delivery/auth-secret-permissions.sh",
             "delivery/install-container-runtime",
+            "delivery/install-environment",
+            "delivery/dashboard_configuration.py",
+            "delivery/install-dashboard-configuration",
+            "delivery/validate-dashboard-configuration",
+            "delivery/runtime-requirements.sh",
             "delivery/quick-start",
             "delivery/release_applier.py",
             "delivery/generate-auth-secret",
@@ -27,6 +35,11 @@ class RepositoryStructureTest(unittest.TestCase):
             "tests/test_delivery_integration.py",
             "tests/test_apply_release.py",
             "tests/test_pki.py",
+            "tests/test_environment_installation.py",
+            "tests/test_dashboard_configuration.py",
+            "tests/test_runtime_requirements.py",
+            "tests/test_markdown.mjs",
+            "tests/test_auth_secret_permissions.py",
             "docs/configuration-management.md",
             "delivery/online/fetch-release",
             "delivery/release_verifier.py",
@@ -62,6 +75,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "tools/go.mod",
             "tools/go.sum",
             "tools/install-validation",
+            "tools/lint-markdown.mjs",
         ]
         missing = [path for path in required_paths if not (REPOSITORY / path).is_file()]
         self.assertEqual([], missing)
@@ -70,6 +84,38 @@ class RepositoryStructureTest(unittest.TestCase):
         agent_file = REPOSITORY / "AGENTS.md"
         self.assertTrue(agent_file.is_symlink())
         self.assertEqual(Path(".agents/AGENTS.md"), agent_file.readlink())
+
+    def test_markdown_engine_is_fixed_without_pattern_expansion_dependencies(
+        self,
+    ) -> None:
+        package = json.loads((REPOSITORY / "package.json").read_text(encoding="utf-8"))
+        lock = json.loads(
+            (REPOSITORY / "package-lock.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual({"markdownlint": "0.41.1"}, package["devDependencies"])
+        self.assertEqual(
+            package["devDependencies"], lock["packages"][""]["devDependencies"]
+        )
+        self.assertEqual(
+            "0.41.1", lock["packages"]["node_modules/markdownlint"]["version"]
+        )
+        for dependency in ("braces", "micromatch", "markdownlint-cli2"):
+            with self.subTest(dependency=dependency):
+                self.assertNotIn(f"node_modules/{dependency}", lock["packages"])
+
+    def test_markdown_rules_keep_only_the_line_length_exception(self) -> None:
+        config = json.loads(
+            (REPOSITORY / ".markdownlint.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual({"MD013": False}, config)
+
+    def test_validation_runs_markdown_regressions_and_high_security_gate(self) -> None:
+        validation = (REPOSITORY / "tests/validate-repository").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("node tools/lint-markdown.mjs\n", validation)
+        self.assertIn("node --test tests/test_markdown.mjs\n", validation)
+        self.assertIn("npm audit --audit-level=high\n", validation)
 
     def test_readme_has_required_repository_sections(self) -> None:
         readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
@@ -87,7 +133,8 @@ class RepositoryStructureTest(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertIn("install-container-runtime --target edge", readme)
         self.assertIn("install-container-runtime --target server", readme)
-        self.assertIn("-o root -g scrap-admin -m 0640", readme)
+        self.assertIn("sudo delivery/install-environment --target edge", readme)
+        self.assertIn("sudo delivery/install-environment --target server", readme)
         self.assertIn("sudo tests/validate-container", readme)
         self.assertIn("외부 의존성에는 각 저작권자가 정한 라이선스를 적용한다.", readme)
 

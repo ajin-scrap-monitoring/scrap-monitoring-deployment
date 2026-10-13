@@ -222,7 +222,8 @@ Load 후 Manifest가 참조한 모든 image digest의 local 존재와 대상 pla
 4. Docker Compose 구성을 검증하고 필요한 Server 인증서 상태를 준비한다.
 5. 기존 `current`를 `previous`로 보존하고 `current` symlink를 새 version으로 전환한 뒤 대상별
    systemd unit을 시작하거나 재시작한다.
-6. systemd가 Docker Compose의 `--wait` 조건을 통과하고 모든 Compose service가 실행 중인지
+6. systemd가 Docker Compose의 `--wait` 조건을 통과하고 모든 Compose service가 실행 중이며
+   health check가 있는 Container는 `healthy`인지
    확인한 뒤 외부 HTTPS 또는 WebSocket Secure (WSS) 연결을 확인한다.
 7. 적용 확인이 실패하면 이전 `current` version과 이전 인증서 상태로 복구하고 실패를 반환한다.
 
@@ -268,6 +269,9 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | --- | --- | --- |
 | `delivery/online/fetch-release` | `--version`, `--target`, `--scenario`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
 | `delivery/install-container-runtime` | `--target {edge,server}` | `scrap-admin` 시스템 그룹, 공통 배포 도구와 고정 Container runtime 설치 및 version 검증, Server의 고정 PKI 도구 설치와 version 검증 |
+| `delivery/install-environment` | `--target {edge,server}`, 선택적 `--scenario {hardware,simulation}`, 시험용 `--root` | 환경 template 최초 설치 또는 기존 파일 보존, 권한과 schema 검증 |
+| `delivery/install-dashboard-configuration` | `--pit-id`, `--camera-id`, 시험용 `--root` | Server runtime JSON 최초 설치 또는 동일 식별자의 기존 파일 보존, JSON과 권한 검증 |
+| `delivery/validate-dashboard-configuration` | 선택적 `--expected-pit-id`, `--expected-camera-id`, 시험용 `--root` | 설치한 runtime JSON의 필드, 식별자, 파일 권한과 expected 입력 일치 검증 |
 | `delivery/quick-start` | `--version`, `--target`, 선택적 `--scenario`, `--output` | Online Package 취득, 적용과 systemd active 상태 확인 |
 | `delivery/offline/import-bundle` | `--version`, `--target`, `--scenario`, `--bundle`, `--checksums` | 검증된 대상과 시나리오 image의 local import |
 | `delivery/verify-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums` | checksum, archive, Manifest와 대상과 시나리오 검증 |
@@ -308,9 +312,10 @@ driver로 연결한다. 두 IP는 서로 다른 LiDAR endpoint이고 port는 모
 `CAMERA_DEVICE` V4L2 loopback device를 Camera 입력으로 사용한다. Camera Edge Bridge는
 `SYNTHETIC_CAMERA_SERVER_URL`의 Visualizer WebSocket stream에 outbound로 연결해 해당 device에
 1920 x 1080, 30 Frames Per Second (FPS) Motion JPEG (MJPEG) frame을 기록한다.
-처리 설정은 host의 `/opt/ajin/config/edge.json` 또는
-`/opt/ajin/config/edge-simulation.json`, token은 `/opt/ajin/secrets`, runtime 상태는
-`/opt/ajin/runtime`에서 관리한다. 기존 Root CA는
+Edge v2는 승인된 runtime JSON을 읽고 driver에 `--schema-version 2.0`을 지정한다. v2의 socket,
+상태와 저장 경로는 기존 v1 경로와 분리하고 기존 환경 파일과 저장소를 자동으로 변환하거나
+덮어쓰지 않는다. 현재 설정 검증의 지원 범위는
+[docs/implementation.md](implementation.md)를 따른다. Token은 `/opt/ajin/secrets`에서 관리한다. 기존 Root CA는
 `/usr/local/share/ca-certificates/scrap-monitoring-root-ca.crt`에서 읽고 필요한 Container에
 read-only로 연결한다.
 
@@ -318,8 +323,10 @@ Server 연결 경로는 다음 형식을 사용한다.
 
 | 용도 | 경로 |
 | --- | --- |
-| 측정 전송 | `https://<server-fqdn>/api/v1/metrics/ingest` |
-| Heartbeat | `https://<server-fqdn>/api/v1/edge/heartbeat` |
+| 설정 등록 | `https://<server-fqdn>/api/edge/v2/configurations` |
+| 측정 전송 | `https://<server-fqdn>/api/edge/v2/measurements` |
+| 판단 전송 | `https://<server-fqdn>/api/edge/v2/assessments` |
+| 상태 전송 | `https://<server-fqdn>/api/edge/v2/status` |
 | Camera frame | `wss://<server-fqdn>/api/v1/cameras/<camera-id>/stream` |
 
 ### Server
@@ -352,28 +359,90 @@ simulation 수락 검사는 5개 경계를 연속으로 확인한다.
 
 ### Component 연동
 
-Backend의 측정 수신은 Edge measurement contract v1.0을 원본 입력으로 처리한다. Backend는
-Edge ID에 연결된 Bearer token을 측정과 heartbeat에 동일하게 검증하고 `measurement_id`의
-고유성을 저장 transaction에서 보장한다. 최초 저장은 동일한 `measurement_id`와
-`accepted=true`, 동일 측정의 재전송은 `accepted=true` 또는 `duplicate=true`로 확인한다.
+Backend는 설정 등록, 측정, 판단과 상태에 Edge ID별 Bearer token을 검증한다.
+`Idempotency-Key`는 메시지의 `message_id`와 일치해야 한다. Backend는 저장 transaction commit 후
+Acknowledgement (ACK)를 반환하며 최초 저장에 `201`, 동일 요청에 `200`, 같은 식별자의 다른
+내용에 `409`를 반환한다. Edge는 설정 등록의 저장 ACK를 확인한 뒤 정상 출력을 활성화한다.
 
-Backend는 `GOOD`, `DEGRADED`, `INVALID` 측정을 모두 수신한다. Edge 계약과 Backend domain
-model 사이의 site, Edge, 적재함, 단위와 품질 상태 변환은 Backend가 소유한다. 배포 Repository는
-해당 변환을 Compose 또는 reverse proxy에서 구현하지 않는다.
-
-Heartbeat endpoint는 Edge heartbeat contract v1.0을 검증하고 Edge별 최신 snapshot과 마지막 정상
-수신 시각을 갱신한다. 정상 처리는 response body 없이 2xx를 반환할 수 있다.
+Edge v2의 메시지 schema와 실행 계약은 Edge Platform이 소유하고 Backend의 domain 변환과
+저장 model은 Backend가 소유한다. 배포 Repository는 해당 변환을 Compose 또는 reverse proxy에서
+구현하지 않는다. 구현되지 않은 적재율과 사건 판단을 배포 설정에서 임의로 생성하지 않는다.
 
 Camera Media Service는 path의 Camera ID에 연결된 `Authorization: Bearer <camera-token>`을
 검증하고 binary JPEG frame을 수신한다. TLS는 Server reverse proxy에서 종료하고 Media Service는
 private Compose network의 WebSocket listener를 사용한다.
 
-관리자 Browser는 TLS 경계를 통해 Server에 연결하고 Backend가 소유하는 사용자 session과
-Cross-Site Request Forgery (CSRF) 보호를 사용한다. Reverse proxy는 Browser 요청에 배포 공용
-Bearer token을 추가하지 않는다. 같은 Edge 또는 Server 안의 service는 Unix Domain Socket (UDS)
-권한이나 외부에 공개하지 않은 Compose network로 격리하고 공유 Bearer token을 사용하지 않는다.
-Camera Media Service에서 Backend로 향하는 직접 API 호출은 현재 계약에 없으며, 해당 기능이
-추가되면 별도 service credential과 최소 권한을 Component 실행 계약에 포함한다.
+Browser는 TLS 경계를 통해 Server에 연결하고 Backend가 소유하는 사용자 session과
+Cross-Site Request Forgery (CSRF) 보호를 사용한다. Reverse proxy의 인증 정보 전달과 같은 장비의
+내부 service 보호는 [docs/configuration-management.md](configuration-management.md)의 인증 경계를
+따른다.
+
+### Browser 권한
+
+사용자 역할은 `viewer`와 `administrator` 2개다. Backend는 `scrap_session` cookie에 연결된
+session의 역할을 사용하며 Browser의 화면 표시, 요청 본문이나 역할 header를 권한 근거로 사용하지
+않는다. Device Bearer token은 사용자 session을 대체하지 않는다.
+
+| 기능 | viewer | administrator |
+| --- | --- | --- |
+| 모니터링, 영상 및 녹화 조회와 다운로드 | 허용 | 허용 |
+| 알림 조회와 읽음 처리, 로그아웃 | 허용 | 허용 |
+| 관리자 설정과 수신 대상 조회 및 변경, 시험 알림 | 거부 | 허용 |
+| Pit 설정 변경, 수거 완료 확인과 Media 제어 | 거부 | 허용 |
+
+Backend는 인증이 없거나 session이 유효하지 않은 요청에 `401`, 필요한 역할이 없거나 CSRF
+token이 유효하지 않은 요청에 `403`을 반환한다. 상태 변경 요청은 해당 session의 `X-CSRF-Token`을
+요구하며 token 누락을 허용하지 않는다. Login은 session 생성 전의 인증 요청이다.
+검사가 실패한 요청은 업무 상태를 변경하지 않는다. Legacy API의 인증 범위와 원격 반영 상태는
+[docs/implementation.md](implementation.md)의 Component 연동 상태를 따른다.
+
+### Browser 영상과 모니터링
+
+관련 구성은 Browser의 Dashboard, Dashboard Nginx, Backend와 Camera Media Service 4개다.
+Dashboard는 같은 HTTPS origin의 root-relative 경로로 요청한다. Nginx는 Browser 영상 요청 시작 시
+Backend의 `/api/v1/media/access`로 session을 검사하고 허용된 요청만 Media로 전달한다. Backend는
+영상 byte를 중계하지 않는다.
+
+Dashboard는 모니터링과 영상 요청 전에 `/runtime-config.json`을 읽고 검증한다. 설정 오류에서는
+해당 요청을 시작하지 않고 image build의 기본 식별자로 대체하지 않는다. 설정 파일의 형식과
+소유권은 [docs/configuration-management.md](configuration-management.md)를 따른다.
+
+| 용도 | Browser 경로 | 처리 component |
+| --- | --- | --- |
+| Runtime 설정 | `/runtime-config.json` | Dashboard Nginx |
+| 현재 상태 | `/api/v2/monitoring/snapshot?pit_id=<pit-id>` | Backend |
+| 실시간 상태 | `/api/v2/monitoring/events?pit_id=<pit-id>` | Backend |
+| 녹화 목록과 단건 | `/api/v1/recordings`, `/api/v1/recordings/<recording-id>` | Backend |
+| 실시간 MJPEG | `/media/cameras/<camera-id>/live` | Media의 `/api/v1/cameras/<camera-id>/live` |
+| MP4 재생 | `/media/clips/<clip-id>/content` | Media의 `/api/v1/clips/<clip-id>/content` |
+| MP4 다운로드 | `/media/clips/<clip-id>/content?download=true` | Media의 같은 경로와 query |
+
+녹화 재생과 다운로드 경로는 Backend의 `contentPath`와 `downloadPath`를 사용한다. 외부 origin의
+URL은 허용하지 않는다. Dashboard 식별자와 실행 설정의 소유권은
+[docs/configuration-management.md](configuration-management.md)를 따른다.
+
+Nginx는 `/api/` 경로를 Backend에 보존하여 전달하고 `/media/`를 Media의 `/api/v1/`로 변경하며
+query를 유지한다. MJPEG와 Server-Sent Events (SSE)의 buffering 및 cache를 비활성화한다. MJPEG는
+`multipart/x-mixed-replace`를 유지하고 각 JPEG part의 `Content-Type`과 정확한 `Content-Length`를
+보존한다. MP4의 `Range`, `If-Range`, `206`, `416`, `Content-Range`와 `Content-Disposition`을
+보존한다. Media의 내부 제어 API는 외부에 직접 공개하지 않는다.
+
+HTTPS server에도 Dashboard 정적 파일, API와 영상 routing을 함께 적용한다. `/healthz`는
+Dashboard Nginx의 상태 검사이며 Backend와 Media의 정상 동작을 증명하지 않는다. Upstream
+Container 재생성 후 Docker DNS 재해석을 검증한다. 통합 fixture의 timeout은 운영 승인값으로
+사용하지 않는다.
+
+Runtime 설정 경로는 HTTP와 HTTPS server 모두 JSON, `Cache-Control: no-store`와 누락 시 `404`를
+제공하며 SPA fallback을 적용하지 않는다. Runtime 설정을 지원하는 image는
+`/usr/share/nginx/html/runtime-config.json`에 host 파일 하나를 read-only mount한다. 별도 HTTPS
+server는 image의 `/etc/nginx/includes/runtime-config.conf`를 포함해야 한다. 설정 변경은 다음
+전체 페이지 로드에 적용하며 원자적 파일 교체 후 bind mount 갱신에 Container 재생성이 필요할
+수 있다. 지원 image와 실제 연결 상태는 [docs/implementation.md](implementation.md)를 따른다.
+
+Session 검사는 요청 시작 시 적용하며 이미 열린 MJPEG 연결의 즉시 session 폐기를 보장하지
+않는다. MP4 본문 요청의 인증 오류 구분과 전송 완료 판정은 Browser 구현 계약의 제한을 따른다.
+공유 token이 없는 내부 연결, 실제 HTTPS의 Secure session cookie, 영상 접근, Range, timeout과
+연결 종료를 통합 수락 검사에서 확인한다.
 
 Component 이름, image와 실행 계약이 확인되기 전에는 빈 Compose service를 임의의 예제로 채우지
 않는다. 확인한 계약을 반영할 때 공개 설정은 대상별 `.env.example`과 `config`에 기록하고 실제 값은
@@ -416,7 +485,7 @@ host에서 수행한다. 실제 Edge와 Monitoring Server는 Release 적용과 �
 - 검증할 Release Package, checksum manifest와 Offline mode의 사전 image import
 
 다음 명령은 실제 Package를 적용하고 current link, 적용 상태, systemd active 상태와 모든 Compose
-service의 running 상태를 확인한다.
+service의 `running` 상태를 확인한다. Health check가 있는 Container는 `healthy`여야 한다.
 
 ```bash
 sudo tests/validate-test-host \
@@ -431,40 +500,8 @@ sudo tests/validate-test-host \
 
 ## 미확정 입력 처리
 
-외부 입력이 필요한 영역은 5개다.
-
-### Edge Platform
-
-- Private GHCR Package의 승인된 예외 사유 또는 Public 전환
-- Private 유지 시 대상 장비의 read-only pull 인증 계약
-- UID `10001` service가 host secret을 읽는 소유권과 mode
-- HTTPS 및 WSS Client가 사용할 Root CA file 입력과 mount
-- 실제 Raspberry Pi, LiDAR, Camera와 운영 보정값의 인수 결과
-
-### Backend
-
-- Edge별 Bearer digest registry file 입력과 constant-time 검증
-- Edge measurement schema, `Idempotency-Key`, 저장 후 ACK와 중복 처리
-- Edge heartbeat endpoint와 상태 저장 model
-- 운영 Database version, migration, volume, backup과 rollback 계약
-- 기본 계정을 사용하지 않는 사용자 저장소, session 영속화와 필수 CSRF 검증
-- `linux/amd64` Release image digest와 외부 고지
-
-### Camera Media Service
-
-- Camera별 Bearer digest registry file 입력과 2개 digest rotation
-- UID `10002` service의 secret 소유권과 mode
-- Liveness, readiness와 reverse proxy 뒤의 평문 WebSocket 계약
-- Browser 전달 protocol, 짧은 수명 media ticket과 권한 검증
-- 녹화 형식, segment, storage quota, retention과 복구 계약
-- `linux/amd64` Release image digest와 외부 고지
-
-### Dashboard
-
-- Backend OpenAPI와 Server-Sent Events (SSE) 계약 승인
-- WebRTC-HTTP Egress Protocol (WHEP) signaling과 재연결 계약 승인
-- Nginx upstream, route, timeout, request limit과 Content Security Policy (CSP) 값
-- Backend session과 CSRF 오류 처리 계약
+Component별 확인된 입력과 미완료 항목은
+[docs/implementation.md](implementation.md)의 Component 연동 상태에서 관리한다.
 
 ### 운영 환경
 

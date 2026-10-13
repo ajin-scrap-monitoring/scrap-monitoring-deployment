@@ -14,6 +14,7 @@ from unittest.mock import patch
 from delivery.release_applier import (
     CertificateSnapshot,
     apply_release,
+    compose_is_healthy,
     synchronize_host_group_environment,
 )
 from tests.test_release import BUILD_ASSETS, image_directory, manifest_with_components
@@ -65,7 +66,7 @@ def write_edge_credential(
             stdout=output,
         )
         output.truncate(64)
-    token.chmod(0o600)
+    token.chmod(0o640)
     digest = hashlib.sha256(token.read_bytes()).hexdigest()
     metadata = secret_directory / f"{name}.metadata.json"
     metadata.write_text(
@@ -169,6 +170,77 @@ class HostGroupEnvironmentTest(unittest.TestCase):
                     self.assertEqual(0o640, environment_file.stat().st_mode & 0o777)
 
 
+class ComposeHealthTest(unittest.TestCase):
+    def check_health(self, output: str, *, returncode: int = 0) -> bool:
+        result = subprocess.CompletedProcess([], returncode, output, "")
+        with patch("delivery.release_applier.subprocess.run", return_value=result):
+            return compose_is_healthy(Path("/deployment"), "edge", {"app"}, {})
+
+    def test_accepts_array_and_json_lines_output(self) -> None:
+        for health in ("", "healthy"):
+            container = {"Service": "app", "State": "running", "Health": health}
+            for output in (
+                json.dumps([container]),
+                json.dumps(container),
+                "\n".join([json.dumps(container), json.dumps(container)]),
+            ):
+                with self.subTest(health=health, output=output):
+                    self.assertTrue(self.check_health(output))
+
+    def test_rejects_unhealthy_starting_and_nonrunning_containers(self) -> None:
+        for state, health in (
+            ("running", "unhealthy"),
+            ("running", "starting"),
+            ("exited", ""),
+            ("restarting", "healthy"),
+            ("paused", "healthy"),
+        ):
+            with self.subTest(state=state, health=health):
+                self.assertFalse(
+                    self.check_health(
+                        json.dumps(
+                            [{"Service": "app", "State": state, "Health": health}]
+                        )
+                    )
+                )
+
+    def test_rejects_failed_command_and_malformed_or_incomplete_output(self) -> None:
+        for output in (
+            "",
+            "[]",
+            "invalid JSON",
+            "null",
+            '["app"]',
+            '{"Service": "app", "State": "running"}',
+            '{"Service": "other", "State": "running", "Health": "healthy"}',
+            '{"Service": [], "State": "running", "Health": "healthy"}',
+        ):
+            with self.subTest(output=output):
+                self.assertFalse(self.check_health(output))
+        self.assertFalse(
+            self.check_health(
+                '{"Service": "app", "State": "running", "Health": "healthy"}',
+                returncode=1,
+            )
+        )
+
+    def test_rejects_partial_or_unexpected_service_sets(self) -> None:
+        healthy = {"Service": "app", "State": "running", "Health": "healthy"}
+        for containers in (
+            [healthy, {**healthy, "Service": "other"}],
+            [healthy, {**healthy, "State": "exited"}],
+        ):
+            with self.subTest(containers=containers):
+                self.assertFalse(self.check_health(json.dumps(containers)))
+        result = subprocess.CompletedProcess([], 0, json.dumps([healthy]), "")
+        with patch("delivery.release_applier.subprocess.run", return_value=result):
+            for expected in (set(), {"app", "missing"}):
+                with self.subTest(expected=expected):
+                    self.assertFalse(
+                        compose_is_healthy(Path("/deployment"), "edge", expected, {})
+                    )
+
+
 def install_fake_commands(temporary_path: Path) -> Path:
     fake_bin = temporary_path / "bin"
     fake_bin.mkdir()
@@ -197,11 +269,12 @@ fi
 if [[ "$1" == "compose" && "$*" == *"config --quiet" ]]; then
   exit 0
 fi
-if [[ "$1" == "compose" && "$*" == *"ps --status running --services" ]]; then
+if [[ "$1" == "compose" && "$*" == *"ps --all --format json" ]]; then
   if [[ "${COMPOSE_UNHEALTHY:-0}" == "1" ]]; then
-    exit 1
+    printf '%s\n' '{"Service":"app","State":"running","Health":"unhealthy"}'
+  else
+    printf '%s\n' '{"Service":"app","State":"running","Health":"healthy"}'
   fi
-  printf '%s\n' 'app'
   exit 0
 fi
 exit 1

@@ -55,6 +55,7 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 - CA 상태가 없거나 일치하지 않으면 새 CA를 만들지 않고 배포를 중단한다.
 - Edge와 Server의 CPU architecture, host storage와 network 경계를 혼합하지 않는다.
 - component source 구현을 이 Repository에 복제하지 않는다.
+- component Repository의 소스코드, branch, version과 Release는 이 Repository의 작업으로 변경하거나 관리하지 않는다.
 - 자격 증명, 인증서 개인키, 사설 주소, 현장 데이터와 공개할 수 없는 asset을 포함하지 않는다.
 - 제품 의존성, 도구와 배포 구성을 채택하면 version, 목적, 출처, license와 현재 상태를
   `docs/implementation.md`에 반영한다.

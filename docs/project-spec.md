@@ -43,6 +43,11 @@ Edge와 Server는 서로 다른 장비와 CPU 아키텍처를 사용하므로 �
 | `hardware` | LiDAR SDK와 실제 LiDAR 2대, 실제 Camera | Backend, Camera Media Service, Dashboard와 TLS 종단 |
 | `simulation` | LiDAR Processing, Camera Edge와 Camera Edge Bridge, V4L2 loopback device | Simulator Server, Visualizer, Backend, Camera Media Service, Dashboard와 TLS 종단 |
 
+두 시나리오의 Edge Platform과 Backend는 동일한 v2 연동 계약을 배포 기준으로 사용한다.
+시나리오는 센서 입력과 보조 component를 구분하며 연동 계약 version을 구분하지 않는다.
+v2 적용 범위는 소프트웨어 구성, 설정과 데이터 계약이며 장비 교체를 전제하지 않는다.
+구현과 통합 검증은 simulation을 선행하고 실제 hardware의 운영 적용은 별도 검증을 요구한다.
+
 `simulation`은 Simulator Repository의 Simulation Server, Visualizer, Camera Edge Bridge 3개
 component를 사용한다. Server는 LiDAR별 IP 주소 2개에서 각각 User Datagram Protocol (UDP) 8089를
 공개한다. Edge Platform은 `LIDAR_A_IP`와 `LIDAR_B_IP`로 두 endpoint에 실제 RPLIDAR Software
@@ -85,6 +90,15 @@ Docker Compose는 각 대상의 컨테이너, 네트워크, volume, health check
 정의한다. systemd는 운영체제 부팅 시 Docker Compose 구성과 필수 host mount를 준비하고
 시작하거나 중지하는 host 수명 주기 경계로만 사용한다. 애플리케이션 프로세스 구성을
 Docker Compose와 systemd에 중복하여 정의하지 않는다.
+
+Dashboard는 Camera Media Service의 Motion JPEG (MJPEG) 실시간 영상과 MP4 녹화를 같은 HTTPS
+origin으로 사용한다. Backend는 사용자 인증과 녹화 제어를 담당하며 영상 byte는 Nginx가 Media에서
+Browser로 전달한다. Browser의 설정 권한은 Backend가 사용자 session의 역할로 강제한다.
+정확한 요청 경로와 권한 검사는 [docs/deployment-contract.md](deployment-contract.md)를 따른다.
+
+Dashboard의 pit ID와 camera ID는 환경별 runtime 설정으로 제공하는 방향을 채택한다. 동일한
+image digest를 환경마다 재사용하고 식별자 변경에 image 재빌드를 요구하지 않는다. 현재 지원
+범위는 [docs/implementation.md](implementation.md)의 Component 연동 상태를 따른다.
 
 ## Release와 버전
 

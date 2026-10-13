@@ -52,26 +52,31 @@ if [[ "${target}" == "server" && "${architecture}" != "amd64" ]]; then
   exit 1
 fi
 
-if ! getent group scrap-admin >/dev/null; then
-  groupadd --system scrap-admin
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=delivery/runtime-requirements.sh
+. "${script_directory}/runtime-requirements.sh"
+
+if ! command -v systemctl >/dev/null || ! systemctl show --property Version --value >/dev/null; then
+  printf '%s\n' 'an active systemd host is required' >&2
+  exit 1
 fi
 
-package_version() {
-  local package="$1"
-  local expected_version="$2"
-  local version
-  version="$(apt-cache madison "${package}" \
-    | awk -v expected_version="${expected_version}" \
-      '$3 ~ ("^" expected_version "([~-]|$)") { print $3; exit }')"
-  if [[ -z "${version}" ]]; then
-    printf '%s\n' "required package version is unavailable: ${package} ${expected_version}" >&2
-    exit 1
-  fi
-  printf '%s\n' "${version}"
-}
+docker_source="$(runtime_apt_source_state /etc/apt \
+  "https://download.docker.com/linux/${ID}" "${VERSION_CODENAME}" stable "${architecture}")"
+smallstep_source=present
+if [[ "${target}" == "server" ]]; then
+  smallstep_source="$(runtime_apt_source_state /etc/apt \
+    https://packages.smallstep.com/stable/debian debs main "${architecture}")"
+fi
+if [[ "${docker_source}" == absent && ( -e /etc/apt/sources.list.d/docker.list || -L /etc/apt/sources.list.d/docker.list ) ]] \
+  || [[ "${smallstep_source}" == absent && ( -e /etc/apt/sources.list.d/smallstep.sources || -L /etc/apt/sources.list.d/smallstep.sources ) ]]; then
+  printf '%s\n' 'reserved APT source file already exists; existing configuration preserved' >&2
+  exit 1
+fi
 
 apt-get update
 apt-get install --yes \
+  bash \
   ca-certificates \
   coreutils \
   curl \
@@ -82,18 +87,24 @@ apt-get install --yes \
   passwd \
   python3 \
   util-linux
+validate_host_tools
+if ! getent group scrap-admin >/dev/null; then
+  groupadd --system scrap-admin
+fi
 install -d -m 0755 /etc/apt/keyrings
-curl -fsSL "https://download.docker.com/linux/${ID}/gpg" \
-  | gpg --dearmor --yes -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-printf '%s\n' \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
-  > /etc/apt/sources.list.d/docker.list
+if [[ "${docker_source}" == absent ]]; then
+  curl -fsSL "https://download.docker.com/linux/${ID}/gpg" \
+    | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+  chmod 0644 /etc/apt/keyrings/docker.gpg
+  printf '%s\n' \
+    "deb [arch=${architecture} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
+    > /etc/apt/sources.list.d/docker.list
+fi
 
-if [[ "${target}" == "server" ]]; then
+if [[ "${target}" == "server" && "${smallstep_source}" == absent ]]; then
   curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
     -o /etc/apt/keyrings/smallstep.asc
-  chmod a+r /etc/apt/keyrings/smallstep.asc
+  chmod 0644 /etc/apt/keyrings/smallstep.asc
   printf '%s\n' \
     'Types: deb' \
     'URIs: https://packages.smallstep.com/stable/debian' \
@@ -122,29 +133,17 @@ if [[ "${target}" == "server" ]]; then
     "step-ca=${step_ca_version}"
   )
 fi
-apt-get install --yes "${packages[@]}"
+apt-get install --yes --no-install-recommends "${packages[@]}"
 systemctl enable --now docker
 
-if [[ "$(docker version --format '{{.Server.Version}}')" != '29.8.0' ]]; then
-  printf '%s\n' 'Docker Engine version must be 29.8.0.' >&2
-  exit 1
-fi
-if [[ "$(docker compose version --short)" != '5.5.1' ]]; then
-  printf '%s\n' 'Docker Compose plugin version must be 5.5.1.' >&2
-  exit 1
-fi
-if [[ "$(containerd --version)" != *' 2.3.5 '* \
-  && "$(containerd --version)" != *' v2.3.5 '* ]]; then
-  printf '%s\n' 'containerd version must be 2.3.5.' >&2
-  exit 1
-fi
+require_exact_version 'Docker Engine' "$(docker version --format '{{.Server.Version}}')" '29.8.0'
+require_exact_version 'Docker CLI' "$(docker version --format '{{.Client.Version}}')" '29.8.0'
+require_exact_version 'Docker Compose plugin' "$(docker compose version --short)" '5.5.1'
+containerd_actual="$(containerd --version | awk '{ sub(/^v/, "", $3); print $3 }')"
+require_exact_version containerd "${containerd_actual}" '2.3.5'
 if [[ "${target}" == "server" ]]; then
-  if [[ "$(step version)" != *'0.30.6'* ]]; then
-    printf '%s\n' 'step CLI version must be 0.30.6.' >&2
-    exit 1
-  fi
-  if [[ "$(step-ca version)" != *'0.30.2'* ]]; then
-    printf '%s\n' 'step-ca version must be 0.30.2.' >&2
-    exit 1
-  fi
+  step_actual="$(step version | awk -F/ 'NR == 1 { split($2, fields, /[[:space:]]/); print fields[1] }')"
+  step_ca_actual="$(step-ca version | awk -F/ 'NR == 1 { split($2, fields, /[[:space:]]/); print fields[1] }')"
+  require_exact_version 'step CLI' "${step_actual}" '0.30.6'
+  require_exact_version step-ca "${step_ca_actual}" '0.30.2'
 fi

@@ -18,6 +18,7 @@ COMMON_PAYLOAD_FILES = (
     "requirements-tooling.txt",
     "delivery/README.md",
     "delivery/apply-release",
+    "delivery/auth-secret-permissions.sh",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
     "delivery/release_applier.py",
@@ -31,6 +32,14 @@ COMMON_PAYLOAD_FILES = (
     "release/release_manifest.py",
     "release/validate-manifest",
 )
+TARGET_PAYLOAD_FILES = {
+    "edge": (),
+    "server": (
+        "delivery/dashboard_configuration.py",
+        "delivery/install-dashboard-configuration",
+        "delivery/validate-dashboard-configuration",
+    ),
+}
 MODE_PAYLOAD_FILES = {
     "online": (
         "delivery/online/README.md",
@@ -47,10 +56,12 @@ EXECUTABLE_PAYLOAD_FILES = {
     "delivery/apply-release",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
+    "delivery/install-dashboard-configuration",
     "delivery/quick-start",
     "delivery/retire-auth-secret",
     "delivery/validate-auth-secrets",
     "delivery/validate-environment",
+    "delivery/validate-dashboard-configuration",
     "delivery/verify-release",
     "delivery/online/fetch-release",
     "delivery/offline/import-bundle",
@@ -114,7 +125,12 @@ def payload_files(
     manifest: dict[str, object],
 ) -> list[tuple[Path, Path]]:
     relative_files = {
-        Path(path) for path in [*COMMON_PAYLOAD_FILES, *MODE_PAYLOAD_FILES[mode]]
+        Path(path)
+        for path in [
+            *COMMON_PAYLOAD_FILES,
+            *TARGET_PAYLOAD_FILES[target],
+            *MODE_PAYLOAD_FILES[mode],
+        ]
     }
     relative_files.add(Path("notices/README.md"))
     for component in scenario_components(manifest, target, scenario):

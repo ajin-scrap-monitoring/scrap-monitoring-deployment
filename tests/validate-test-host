@@ -62,7 +62,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-for command in containerd docker jq systemctl uname; do
+for command in containerd docker jq python3 systemctl uname; do
   command -v "${command}" >/dev/null || {
     printf '%s\n' "${command} is required" >&2
     exit 1
@@ -133,12 +133,34 @@ if ! jq --exit-status \
 fi
 systemctl is-active --quiet "${service}"
 
-project="${deployment_root}/current/targets/${target}"
-expected_services="$(docker compose --project-directory "${project}" config --services | sort)"
-running_services="$(docker compose --project-directory "${project}" ps --status running --services | sort)"
-if [[ -z "${expected_services}" || "${running_services}" != "${expected_services}" ]]; then
-  printf '%s\n' 'Compose services are not all running' >&2
-  exit 1
-fi
+python3 - "${repository}" "${deployment_root}" "${target}" "${environment_file}" <<'PYTHON'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from delivery.release_applier import (
+    compose_environment,
+    compose_is_healthy,
+    parse_environment,
+    validate_compose,
+)
+
+deployment_root = Path(sys.argv[2])
+target = sys.argv[3]
+current = deployment_root / "current"
+generated = (
+    (deployment_root / "state" / "edge.generated.env").read_bytes()
+    if target == "edge"
+    else None
+)
+environment = compose_environment(
+    parse_environment(Path(sys.argv[4])),
+    parse_environment(current / "targets" / target / "release.env"),
+    generated,
+)
+expected_services = validate_compose(current, target, environment)
+if not compose_is_healthy(deployment_root, target, expected_services, environment):
+    sys.exit("Compose services are not all running and healthy")
+PYTHON
 
 printf '%s\n' "test host validation passed: ${target} ${scenario} ${version}"

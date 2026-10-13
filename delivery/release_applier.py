@@ -627,15 +627,39 @@ def compose_is_healthy(
     project = deployment_root / "current" / "targets" / target
     base = ["docker", "compose", "--project-directory", str(project)]
     result = subprocess.run(
-        [*base, "ps", "--status", "running", "--services"],
+        [*base, "ps", "--all", "--format", "json"],
         check=False,
         capture_output=True,
         text=True,
         env=environment,
     )
-    return (
-        result.returncode == 0 and set(result.stdout.splitlines()) == expected_services
-    )
+    if result.returncode != 0 or not expected_services:
+        return False
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        try:
+            containers = [
+                json.loads(line) for line in result.stdout.splitlines() if line.strip()
+            ]
+        except json.JSONDecodeError:
+            return False
+    else:
+        containers = document if isinstance(document, list) else [document]
+    observed_services: set[str] = set()
+    for container in containers:
+        if not isinstance(container, dict):
+            return False
+        service = container.get("Service")
+        if not isinstance(service, str) or not service:
+            return False
+        if container.get("State") != "running" or container.get("Health") not in (
+            "",
+            "healthy",
+        ):
+            return False
+        observed_services.add(service)
+    return observed_services == expected_services
 
 
 def write_state(
