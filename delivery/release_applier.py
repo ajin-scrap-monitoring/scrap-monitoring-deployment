@@ -17,8 +17,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
+    from .edge_configuration import read_configuration
     from .release_verifier import TARGET_PLATFORMS, archive_members, verify_release
 except ImportError:
+    from edge_configuration import read_configuration
     from release_verifier import TARGET_PLATFORMS, archive_members, verify_release
 
 MACHINE_PLATFORMS = {
@@ -34,7 +36,6 @@ HOST_GROUP_VARIABLES = {
     "edge": ("VIDEO_GID", "video"),
     "server": ("DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin"),
 }
-MAX_EDGE_CONFIG_SIZE = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -431,15 +432,7 @@ def create_edge_generated_environment(
         directory=False,
         label="Edge configuration",
     )
-    config_bytes = config.read_bytes()
-    if len(config_bytes) > MAX_EDGE_CONFIG_SIZE:
-        raise ValueError("Edge configuration is too large")
-    document = json.loads(config_bytes, object_pairs_hook=unique_json_object)
-    if not isinstance(document, dict):
-        raise TypeError("Edge configuration must be a JSON object")
-    for key in ("SITE_ID", "EDGE_ID", "CAMERA_ID", "CONFIG_REVISION"):
-        if key in document and document[key] != environment[key]:
-            raise ValueError(f"Edge configuration does not match {key}")
+    config_bytes = read_configuration(config, environment)
     digest = hashlib.sha256(config_bytes).hexdigest()
     return f"CONFIG_SHA256={digest}\n".encode()
 
@@ -456,9 +449,6 @@ def validate_target_inputs(
     environment = parse_environment(environment_file)
     if environment["DEPLOYMENT_SCENARIO"] != scenario:
         raise ValueError("target environment scenario does not match the package")
-    environment = synchronize_host_group_environment(
-        target, environment, environment_file, host_root
-    )
     generated = None
     if target == "edge":
         generated = create_edge_generated_environment(environment, host_root)
@@ -483,6 +473,13 @@ def validate_target_inputs(
             label="Edge Root CA",
         )
     else:
+        run_checked(
+            [
+                str(stage / "delivery" / "validate-dashboard-configuration"),
+                "--root",
+                str(host_root),
+            ]
+        )
         require_host_path(
             host_root,
             environment["BACKEND_DATA_PATH"],
@@ -500,6 +497,9 @@ def validate_target_inputs(
     if target == "edge":
         command.append(str(environment_file))
     run_checked(command)
+    environment = synchronize_host_group_environment(
+        target, environment, environment_file, host_root
+    )
     return environment, generated
 
 

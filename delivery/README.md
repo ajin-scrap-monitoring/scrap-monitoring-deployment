@@ -4,6 +4,7 @@
 
 `install-container-runtime`은 대상 host의 배포 의존성을 설치하고 version을 검증한다.
 `install-environment`는 대상과 시나리오의 환경 파일을 설치하거나 기존 파일을 보존하고 검증한다.
+`validate-edge-configuration`은 v2 runtime의 배포 입력을 읽기 전용으로 검사한다.
 환경 파일의 소유권과 동기화는
 [docs/configuration-management.md](../docs/configuration-management.md)를 따른다.
 
@@ -25,6 +26,8 @@ Manifest의 version, target, scenario, mode, platform과 digest를 교차 검증
 기반 release.env와 Edge CONFIG_SHA256을 생성한다. 환경설정, secret, image, Compose와 Server
 인증서를 확인한 뒤 current 및 previous link를 전환하고 systemd를 시작한다. 시작 또는 Compose
 실행 상태 확인이 실패하면 이전 link, Edge 파생 설정과 Server 인증서를 복구한다.
+Server는 Dashboard runtime 설정도 전환 전에 검증한다. 구성 검증은 Component domain 검증이나
+실제 서비스 통합 검증을 대체하지 않는다.
 
 `quick-start`는 대상 환경 파일이 준비된 host에서 Online Package 취득, 적용과 systemd active 상태
 확인을 하나의 명령으로 수행한다. 기본 시나리오는 `hardware`다.

@@ -608,6 +608,11 @@ class ReleaseAssetsTest(unittest.TestCase):
                 self.assertEqual(0o755, archive.getmember(entrypoint).mode)
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(edge_offline, "r:gz") as archive:
+            self.assertIn("delivery/edge_configuration.py", archive.getnames())
+            self.assertIn("delivery/validate-edge-configuration", archive.getnames())
+            self.assertEqual(
+                0o755, archive.getmember("delivery/validate-edge-configuration").mode
+            )
             self.assertIn("images/edge-hardware-images.tar", archive.getnames())
             self.assertIn("delivery/offline/bundle_importer.py", archive.getnames())
             self.assertIn("delivery/offline/import-bundle", archive.getnames())

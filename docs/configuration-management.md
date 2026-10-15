@@ -66,14 +66,17 @@ file 0640을 사용한다. `delivery/install-container-runtime --target <edge|se
 
 ## Component 설정과 파생값
 
-hardware Edge의 처리 설정은 /opt/ajin/config/edge.json에서 관리한다. simulation Edge의 처리 설정은
-/opt/ajin/config/edge-simulation.json에서 관리한다. Simulator Server의 scene과 sensor 설정, Visualizer
+hardware Edge의 v2 runtime 설정은 /opt/ajin/config/edge-v2.runtime.json에서 관리한다. simulation Edge의
+v2 runtime 설정은 /opt/ajin/config/edge-simulation-v2.runtime.json에서 관리한다. 두 Edge 환경 schema는
+version `4`이며 v1 환경 파일과 저장소를 자동 변환하지 않는다. Simulator Server의 scene과 sensor 설정, Visualizer
 camera profile과 Camera Edge Bridge의 frame 처리 설정은 Simulator component image가 소유한다. 승인된
 보정값, 센서 매핑과 service version manifest는 Component 설정의 책임이다.
 장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
-CAMERA_ID와 CONFIG_REVISION이 설정 파일에도 있으면 배포 적용기가 값의 일치를 검증한다.
+CAMERA_ID와 CONFIG_REVISION은 장비별 값이다. 배포 적용기는 `configuration`의 `site_id`, `edge_id`,
+`config_revision`과 환경 파일의 값을 비교한다. Camera ID는 Camera Edge의 입력이며 LiDAR 설정 등록에서
+추정하지 않는다.
 
-CONFIG_SHA256은 edge.json의 정확한 byte에서 계산한 SHA-256 값이다. 운영자가 직접 입력하지 않고
+CONFIG_SHA256은 v2 runtime JSON의 정확한 byte에서 계산한 SHA-256 값이다. 운영자가 직접 입력하지 않고
 배포 적용기가 계산하여 대상별 generated environment 파일에 기록한다. 설정 파일이 바뀌면
 CONFIG_REVISION을 갱신하고 hash를 다시 계산해야 한다.
 
@@ -85,6 +88,34 @@ Generated environment 파일은 Release 설정이나 장비 환경설정의 정�
 | Edge Release 환경 | /srv/scrap-monitoring/deployment/current/targets/edge/release.env | Release manifest |
 | Server Release 환경 | /srv/scrap-monitoring/deployment/current/targets/server/release.env | Release manifest |
 | Edge 파생 환경 | /srv/scrap-monitoring/deployment/state/edge.generated.env | Edge 설정 파일 |
+
+### Edge v2 runtime 설정
+
+Runtime JSON의 필드는 9개다.
+
+| 필드 | 입력 계약 |
+| --- | --- |
+| `configuration` | Edge Repository의 전체 v2 설정 등록 메시지 |
+| `drivers` | 등록한 LiDAR 2개의 sensor ID와 서로 다른 `unix:/` socket 주소 |
+| `delivery_endpoint` | Uplink의 private Unix domain socket 주소 |
+| `observation_endpoint` | Processing의 private Unix domain socket 주소 |
+| `storage_dir` | v2 전용 Outbox 절대 경로 |
+| `status_dir` | Outbox와 겹치지 않는 상태 전용 절대 경로 |
+| `clock_domain_file` | Clock domain을 읽을 절대 경로 |
+| `backend_origin` | 환경 파일의 `BACKEND_ORIGIN`과 일치하는 HTTPS origin |
+| `token_file` | Container가 읽을 Edge token 파일의 절대 경로 |
+
+JSON 내부 경로는 Component 실행 환경 기준이며 host의 `RUNTIME_DIR`와 동일하다고 가정하지 않는다.
+실제 mount 연결은 Compose의 책임이다. 기본 host runtime 경로는 hardware의 `/opt/ajin/runtime/v2`와
+simulation의 `/opt/ajin/runtime/simulation-v2`로 분리한다.
+
+`delivery/validate-edge-configuration <environment-file>`은 환경 schema, runtime의 필수 필드와
+식별자, sensor와 driver 매핑, socket 및 저장 경로의 구조와 HTTPS origin을 읽기 전용으로 검사한다.
+시험용 `--root`는 격리한 host fixture를 읽는다. 설정 파일의 symbolic link, hard link, 중복 JSON
+필드, 잘못된 UTF-8, 비정상 수치와 16 MiB 초과 입력을 거부하며 본문과 실제 값을 출력하지 않는다.
+전체 등록 메시지의 domain schema와 의미 검증은 Edge Component가 소유하며 이 도구는 복제하지 않는다.
+배포 적용과 Edge systemd 시작 전에도 같은 검사를 수행한다. 재실행은 등록 메시지의 ID나 파일을
+생성하거나 교체하지 않는다.
 
 ### Dashboard 설정
 
@@ -132,6 +163,9 @@ sudo delivery/install-dashboard-configuration \
 `delivery/validate-dashboard-configuration`으로 실행하며 `--expected-pit-id`와
 `--expected-camera-id`를 제공하면 해당 값과도 비교한다. 시험용 `--root`는 기존 fixture directory의
 소유자와 그룹을 사용하며 host 계정을 변경하지 않는다.
+
+Server 배포 적용과 systemd 시작은 이 설정을 읽기 전용으로 검증하며 누락되거나 잘못된 경우
+실행을 중단한다. Backend 식별자의 자동 조회와 expected 값 주입은 구현되지 않았다.
 
 Backend의 `MEDIA_PIT_ID`와 `MEDIA_CAMERA_ID`는 runtime JSON의 식별자와 일치해야 한다.
 `EDGE_V2_MONITORING_SOURCES`는 같은 pit에 대응하는 site와 Edge 연결을 제공해야 한다. 검증 도구의
@@ -256,16 +290,15 @@ SHA-256 fingerprint다. `PKI_CA_URL`은 host에서 접근하는 loopback 전용 
 | 값 | 소유 영역 | 상태 |
 | --- | --- | --- |
 | SITE_ID, EDGE_ID, CAMERA_ID | Edge 장비 환경설정 | 대상 장비별 필수값 |
-| CONFIG_REVISION | Edge 장비 환경설정 | edge.json의 동일 항목과 일치 |
-| CONFIG_SHA256 | Generated environment | edge.json에서 계산 |
+| CONFIG_REVISION | Edge 장비 환경설정 | v2 등록 메시지의 config_revision과 일치 |
+| CONFIG_SHA256 | Generated environment | v2 runtime JSON에서 계산 |
 | LIDAR_A_IP, LIDAR_B_IP | Edge 장비 환경설정 | 현장 센서 주소 |
 | SYNTHETIC_CAMERA_SERVER_URL | Edge 장비 환경설정 | Visualizer WebSocket URL |
 | CAMERA_DEVICE | Edge 장비 환경설정 | V4L2 loopback device 경로 |
 | SIMULATOR_LIDAR_A_IP, SIMULATOR_LIDAR_B_IP | Server 장비 환경설정 | LiDAR별 UDP publish IP |
 | SIMULATOR_LIDAR_UDP_PORT | Server 장비 환경설정 | LiDAR별 공통 UDP port |
 | SIMULATOR_VISUALIZER_BIND_ADDRESS | Server 장비 환경설정 | Visualizer HTTP와 WebSocket publish IP |
-| MEASUREMENT_URL | Edge 장비 환경설정 | Backend HTTPS 수신 경로 |
-| HEARTBEAT_URL | Edge 장비 환경설정 | Backend HTTPS heartbeat 경로 |
+| BACKEND_ORIGIN | Edge 장비 환경설정 | 설정, 측정, 판단과 상태의 공통 Backend HTTPS origin |
 | MEDIA_WSS_URL | Edge 장비 환경설정 | Media WSS 수신 경로 |
 | DEPLOYMENT_REVISION | Release 설정 | 통합 Release에서 생성 |
 | 이름이 IMAGE로 끝나는 변수 | Release 설정 | Manifest의 digest 고정 image |

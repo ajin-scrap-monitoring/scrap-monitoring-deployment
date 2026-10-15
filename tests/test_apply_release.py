@@ -17,6 +17,7 @@ from delivery.release_applier import (
     compose_is_healthy,
     synchronize_host_group_environment,
 )
+from tests.edge_fixtures import runtime_document
 from tests.test_release import BUILD_ASSETS, image_directory, manifest_with_components
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -94,20 +95,13 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     environment_file.chmod(0o640)
-    config = host_root / "opt" / "ajin" / "config" / "edge.json"
+    config = host_root / "opt" / "ajin" / "config" / "edge-v2.runtime.json"
     config.parent.mkdir(parents=True)
     config.write_text(
-        json.dumps(
-            {
-                "SITE_ID": "example-site",
-                "EDGE_ID": "example-edge",
-                "CAMERA_ID": "example-camera",
-                "CONFIG_REVISION": "example-config-r1",
-            }
-        ),
+        json.dumps(runtime_document()),
         encoding="utf-8",
     )
-    (host_root / "opt" / "ajin" / "runtime").mkdir(parents=True)
+    (host_root / "opt" / "ajin" / "runtime" / "v2").mkdir(parents=True)
     camera = host_root / "dev" / "video0"
     camera.parent.mkdir(parents=True)
     camera.write_text("camera fixture\n", encoding="utf-8")
@@ -545,9 +539,9 @@ class ApplyReleaseTest(unittest.TestCase):
             self.host_root,
             self.environment_file,
         )
-        config = self.host_root / "opt" / "ajin" / "config" / "edge.json"
+        config = self.host_root / "opt" / "ajin" / "config" / "edge-v2.runtime.json"
         document = json.loads(config.read_text(encoding="utf-8"))
-        document["EDGE_ID"] = "different-edge"
+        document["configuration"]["edge_id"] = "different-edge"
         config.write_text(json.dumps(document), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "does not match EDGE_ID"):
@@ -586,9 +580,9 @@ class ApplyReleaseTest(unittest.TestCase):
         deployment = self.temporary_path / "deployment"
         generated = deployment / "state" / "edge.generated.env"
         original_generated = generated.read_bytes()
-        config = self.host_root / "opt" / "ajin" / "config" / "edge.json"
+        config = self.host_root / "opt" / "ajin" / "config" / "edge-v2.runtime.json"
         document = json.loads(config.read_text(encoding="utf-8"))
-        document["calibration"] = "updated"
+        document["configuration"]["calibration"] = "updated"
         config.write_text(json.dumps(document), encoding="utf-8")
         second_assets = build_assets(self.temporary_path, "v0.0.2")
         second_args = apply_arguments(

@@ -22,6 +22,7 @@ COMMON_PAYLOAD_FILES = (
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
     "delivery/release_applier.py",
+    "delivery/edge_configuration.py",
     "delivery/release_verifier.py",
     "delivery/retire-auth-secret",
     "delivery/validate-auth-secrets",
@@ -33,7 +34,7 @@ COMMON_PAYLOAD_FILES = (
     "release/validate-manifest",
 )
 TARGET_PAYLOAD_FILES = {
-    "edge": (),
+    "edge": ("delivery/validate-edge-configuration",),
     "server": (
         "delivery/dashboard_configuration.py",
         "delivery/install-dashboard-configuration",
@@ -54,6 +55,7 @@ MODE_PAYLOAD_FILES = {
 }
 EXECUTABLE_PAYLOAD_FILES = {
     "delivery/apply-release",
+    "delivery/validate-edge-configuration",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
     "delivery/install-dashboard-configuration",

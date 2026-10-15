@@ -13,15 +13,16 @@ Edge 설정 입력은 4개다.
 | Generated 설정 | 배포 적용기가 생성한 environment 파일 | CONFIG_SHA256 |
 | 비밀 파일 | /opt/ajin/secrets | Backend와 Camera token |
 
-공개 환경설정 schema는 [.env.example](.env.example)을 따른다. 값의 소유권과 동기화는
-[배포 환경설정 관리](../../docs/configuration-management.md)를 따른다.
+공개 환경설정 schema는 [hardware/.env.example](hardware/.env.example)과
+[simulation/.env.example](simulation/.env.example)을 따른다. 값의 소유권과 동기화는
+[docs/configuration-management.md](../../docs/configuration-management.md)를 따른다.
 
 ## 연결 경계
 
 두 LiDAR 주소는 LIDAR_A_IP와 LIDAR_B_IP로 제공한다. hardware는 실제 sensor 주소를, simulation은
 Server가 UDP 8089로 공개한 LiDAR별 IP를 사용한다. simulation Camera Edge Bridge는
 SYNTHETIC_CAMERA_SERVER_URL에서 synthetic MJPEG stream을 수신해 CAMERA_DEVICE V4L2 device에
-기록한다. Backend 측정과 heartbeat는 MEASUREMENT_URL과 HEARTBEAT_URL의 HTTPS endpoint를 사용한다.
+기록한다. 설정, 측정, 판단과 상태는 BACKEND_ORIGIN의 Edge v2 HTTPS 수신 경로를 사용한다.
 Camera frame은 MEDIA_WSS_URL의 WebSocket Secure (WSS) endpoint로 전송한다.
 
 Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Container에 read-only로
@@ -29,9 +30,9 @@ Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Con
 
 ## 현재 상태
 
-환경설정 schema, 연결 계약과 Compose 시작 전 원문 token 검증이 반영되어 있다. Edge
-Platform `v0.1.1` ARM64 image 5개는 Private GHCR Package로 게시되어 있다. Public 전환 또는
-예외 승인과 현장 인수는 확정되지 않았다. Secret 접근 권한 정책은
+v2 환경설정 schema, runtime JSON과 Compose 시작 전 원문 token 검증이 반영되어 있다.
+Component image와 인수 상태는 [docs/implementation.md](../../docs/implementation.md)를 따른다.
+Secret 접근 권한 정책은
 [docs/configuration-management.md](../../docs/configuration-management.md)를 따른다. 배포 적용기는
 Manifest 기반 release.env와 CONFIG_SHA256을 생성하며 실제 Compose service, service별 secret
 연결과 Root CA mount는 구현되지 않았다.

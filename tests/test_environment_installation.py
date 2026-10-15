@@ -183,6 +183,19 @@ class EnvironmentInstallationTest(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertFalse((self.host_root / "etc").exists())
 
+    def test_rejects_legacy_edge_schema_without_migration(self) -> None:
+        self.assertEqual(0, self.install().returncode)
+        path = self.environment_file()
+        original = path.read_text().replace(
+            "ENVIRONMENT_SCHEMA_VERSION=4", "ENVIRONMENT_SCHEMA_VERSION=2"
+        )
+        path.write_text(original)
+        before = path.stat().st_ino
+        result = self.install()
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(original, path.read_text())
+        self.assertEqual(before, path.stat().st_ino)
+
 
 if __name__ == "__main__":
     unittest.main()

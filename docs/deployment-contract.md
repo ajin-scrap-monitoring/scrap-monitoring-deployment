@@ -280,6 +280,7 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 digest 폐기 |
 | `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자, digest와 권한 검증 |
 | `delivery/validate-environment` | 대상, 시나리오와 실제 환경 파일 | Schema version, 변수 집합, 시나리오와 빈 값 검증 |
+| `delivery/validate-edge-configuration` | Edge 환경 파일, 시험용 `--root` | v2 runtime의 배포 필드, 식별자, sensor 및 socket 매핑과 HTTPS origin 검증 |
 | `delivery/apply-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums`, `--mode` | host group ID 파생값 동기화, 재검증, Version staging, 목표 상태 전환과 상태 확인 |
 
 모든 실행 파일은 입력 오류, 검증 실패와 미구현 동작에 성공 code를 반환하지 않는다. 실패 메시지는
