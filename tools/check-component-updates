@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+COMPONENTS = {
+    "Simulator": "scrap-monitoring-simulator",
+    "Edge Platform": "ajin-edge-platform",
+    "Backend": "scrap-monitoring-backend",
+    "Camera Media Service": "ajin-camera-media-service",
+    "Dashboard": "scrap-monitoring-dashboard",
+}
+MAX_RESPONSE_BYTES = 1024 * 1024
+RELEASE_LABELS = {
+    "scrap-monitoring-simulator": "Simulator Repository",
+    "ajin-edge-platform": "Edge Platform",
+    "scrap-monitoring-backend": "Backend",
+    "ajin-camera-media-service": "Camera Media Service",
+    "scrap-monitoring-dashboard": "Dashboard Nginx",
+}
+
+
+def release_versions(document: str) -> dict[str, str | None]:
+    result = {}
+    for repository, label in RELEASE_LABELS.items():
+        rows = re.findall(
+            rf"^\| {re.escape(label)} \| ([^\n]+)$", document, re.MULTILINE
+        )
+        # Backend also appears in the source table; only the contract row has no link prefix.
+        rows = [row for row in rows if not row.startswith("[")]
+        if len(rows) != 1:
+            raise ValueError("component Release baseline is missing or ambiguous")
+        match = re.match(r"`(v[0-9]+\.[0-9]+\.[0-9]+)`", rows[0])
+        result[repository] = match.group(1) if match else None
+    return result
+
+
+def source_revisions(document: str) -> dict[str, str]:
+    result = {}
+    for component, repository in COMPONENTS.items():
+        matches = re.findall(
+            rf"^\| {re.escape(component)} \| \[([0-9a-f]{{40}})\]"
+            rf"\(https://github\.com/ajin-scrap-monitoring/{re.escape(repository)}/tree/\1\) \|$",
+            document,
+            re.MULTILINE,
+        )
+        if len(matches) != 1:
+            raise ValueError("component source baseline is missing or ambiguous")
+        result[repository] = matches[0]
+    return result
+
+
+def github_json(repository: str, route: str, *, missing_release: bool = False):
+    request = Request(
+        f"https://api.github.com/repos/ajin-scrap-monitoring/{repository}/{route}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "scrap-deployment-contract-check",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", "Bearer " + token)
+    try:
+        with urlopen(request, timeout=15) as response:
+            content = response.read(MAX_RESPONSE_BYTES + 1)
+    except HTTPError as error:
+        if error.code == 404 and missing_release:
+            return None
+        raise ValueError("GitHub metadata request failed") from None
+    if len(content) > MAX_RESPONSE_BYTES:
+        raise ValueError("GitHub metadata response exceeds the limit")
+    return json.loads(content)
+
+
+def check_updates(
+    baselines: dict[str, str], releases: dict[str, str | None] | None = None
+) -> list[dict[str, object]]:
+    result = []
+    for repository, baseline in baselines.items():
+        reference = github_json(repository, "git/ref/heads/main")
+        revision = reference.get("object", {}).get("sha")
+        if not isinstance(revision, str) or not re.fullmatch("[0-9a-f]{40}", revision):
+            raise ValueError("invalid remote source revision")
+        release = github_json(repository, "releases/latest", missing_release=True)
+        version = release.get("tag_name") if isinstance(release, dict) else None
+        if release is not None and (
+            not isinstance(version, str)
+            or not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", version)
+        ):
+            raise ValueError("invalid published Release version")
+        baseline_release = (releases or {}).get(repository)
+        result.append(
+            {
+                "repository": repository,
+                "baselineRevision": baseline,
+                "remoteRevision": revision,
+                "sourceChanged": revision != baseline,
+                "latestRelease": version,
+                "baselineRelease": baseline_release,
+                "releaseChanged": version != baseline_release,
+                "imageVerified": False,
+            }
+        )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Read component source and Release metadata without modifying repositories or running images."
+    )
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--repository-root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
+    args = parser.parse_args()
+    try:
+        baseline = (args.repository_root / "docs/implementation.md").read_text(
+            encoding="utf-8"
+        )
+        report = check_updates(source_revisions(baseline), release_versions(baseline))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        print(
+            "Component metadata check failed; no deployment state changed.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.json:
+        print(json.dumps(report, ensure_ascii=True, indent=2))
+    else:
+        for item in report:
+            print(
+                f"{item['repository']}: source={'CHANGED' if item['sourceChanged'] else 'MATCH'}, release={item['latestRelease'] or 'NONE'}, release_changed={item['releaseChanged']}; image execution NOT VERIFIED"
+            )
+    return (
+        1
+        if any(item["sourceChanged"] or item["releaseChanged"] for item in report)
+        else 0
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

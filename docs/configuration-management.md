@@ -88,7 +88,7 @@ Generated environment 파일은 Release 설정이나 장비 환경설정의 정�
 
 ### Dashboard 설정
 
-Dashboard의 로컬 source가 사용하는 운영 image build 입력은 4개다.
+Dashboard source가 사용하는 운영 image build 입력은 4개다.
 
 | 입력 | 배포 기준 | 소유 영역 |
 | --- | --- | --- |

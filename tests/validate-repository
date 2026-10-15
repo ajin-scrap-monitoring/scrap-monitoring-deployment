@@ -12,6 +12,7 @@ find release pki/config -type f -name '*.json' -print0 \
   | xargs -0 jq empty
 jq empty .markdownlint.json package.json package-lock.json
 .venv/bin/ruff check \
+  tools/check-component-updates \
   delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \
@@ -24,6 +25,7 @@ jq empty .markdownlint.json package.json package-lock.json
   release/verify-assets \
   tests
 .venv/bin/ruff format --check \
+  tools/check-component-updates \
   delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \

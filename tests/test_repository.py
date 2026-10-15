@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -76,6 +77,7 @@ class RepositoryStructureTest(unittest.TestCase):
             "tools/go.sum",
             "tools/install-validation",
             "tools/lint-markdown.mjs",
+            "tools/check-component-updates",
         ]
         missing = [path for path in required_paths if not (REPOSITORY / path).is_file()]
         self.assertEqual([], missing)
@@ -137,6 +139,28 @@ class RepositoryStructureTest(unittest.TestCase):
         self.assertIn("sudo delivery/install-environment --target server", readme)
         self.assertIn("sudo tests/validate-container", readme)
         self.assertIn("외부 의존성에는 각 저작권자가 정한 라이선스를 적용한다.", readme)
+
+    def test_component_source_references_use_full_matching_commit_links(self) -> None:
+        implementation = (REPOSITORY / "docs/implementation.md").read_text(
+            encoding="utf-8"
+        )
+        expected = {
+            "Simulator": "scrap-monitoring-simulator",
+            "Edge Platform": "ajin-edge-platform",
+            "Backend": "scrap-monitoring-backend",
+            "Camera Media Service": "ajin-camera-media-service",
+            "Dashboard": "scrap-monitoring-dashboard",
+        }
+        for component, repository in expected.items():
+            with self.subTest(component=component):
+                pattern = (
+                    rf"^\| {re.escape(component)} \| \[([0-9a-f]{{40}})\]"
+                    rf"\(https://github\.com/ajin-scrap-monitoring/"
+                    rf"{re.escape(repository)}/tree/\1\) \|$"
+                )
+                self.assertEqual(
+                    1, len(re.findall(pattern, implementation, re.MULTILINE))
+                )
 
 
 if __name__ == "__main__":

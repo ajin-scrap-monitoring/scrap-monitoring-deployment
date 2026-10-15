@@ -117,7 +117,8 @@ Dashboard runtime 설정 파일의 설치는
 
 ## 빠른 시작
 
-발행된 통합 Release의 Online Package를 대상별로 적용한다.
+공개된 통합 Release와 대상별 Online Package가 있어야 다음 명령을 실행할 수 있다.
+제공 상태와 외부 의존 조건은 [docs/implementation.md](docs/implementation.md)를 따른다.
 
 ### Server hardware deployment
 

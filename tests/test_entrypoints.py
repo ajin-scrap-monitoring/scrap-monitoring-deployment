@@ -31,6 +31,7 @@ IMPLEMENTED_ENTRYPOINTS = [
     REPOSITORY / "tests" / "validate-test-host",
 ]
 PYTHON_ENTRYPOINTS = [
+    REPOSITORY / "tools" / "check-component-updates",
     REPOSITORY / "release" / "build-assets",
     REPOSITORY / "release" / "validate-manifest",
     REPOSITORY / "release" / "validate-targets",
