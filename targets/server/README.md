@@ -12,8 +12,9 @@ Server 설정 입력은 3개다.
 | 장비 환경설정 | /etc/scrap-monitoring/server.env | FQDN, listener, host 경로와 Browser origin |
 | 비밀 및 PKI 파일 | /srv/scrap-monitoring | 자격 증명, Server 인증서와 개인키 |
 
-공개 환경설정 schema는 [.env.example](.env.example)을 따른다. 값의 소유권과 동기화는
-[배포 환경설정 관리](../../docs/configuration-management.md)를 따른다.
+공개 환경설정 schema는 [hardware/.env.example](hardware/.env.example)과
+[simulation/.env.example](simulation/.env.example)을 따른다. 값의 소유권과 동기화는
+[docs/configuration-management.md](../../docs/configuration-management.md)를 따른다.
 
 ## 라우팅 경계
 
@@ -26,7 +27,6 @@ Backend port는 Container network에만 두며 외부 Client는 Server의 HTTPS 
 ## 현재 상태
 
 환경설정 schema, 라우팅 계약과 Compose 시작 전 digest registry 검증이 반영되어 있다.
-Dashboard `v0.1.2` Public AMD64 image는 게시되어 있다. Backend와 Camera Media Service의
-Release image, Edge 측정과 heartbeat 계약, digest registry 입력과 운영 Database 계약은
-확정되지 않았다. 배포 적용기는 Manifest 기반 release.env와 Server 인증서를 준비하며
+Component image와 미완료 계약은 [docs/implementation.md](../../docs/implementation.md)를 따른다.
+배포 적용기는 Manifest 기반 release.env와 Server 인증서를 준비하며
 service별 secret 연결과 실제 Compose service는 구현되지 않았다.

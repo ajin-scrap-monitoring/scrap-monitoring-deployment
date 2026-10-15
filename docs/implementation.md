@@ -98,22 +98,31 @@ storage 연결과 목표 Compose는 구현되지 않았다. simulation 구성과
 ## Component 연동 상태
 
 확인한 외부 source 기준은 5개다. 각 기준은 원격 `main`의 full Git commit으로 고정한다.
+Source 구현, 공개 Release와 개발 장비의 구동 상태는 별도로 판정한다. Source 확인은 image 실행이나
+통합 배포 성공을 의미하지 않는다.
+
+`tools/check-component-updates`는 이 절의 source 및 Release 기준과 GitHub의 공개 metadata를
+읽기 전용으로 비교한다. Source 또는 Release 변경은 종료 code `1`, 조회 및 형식 오류는 `2`,
+기준 일치는 `0`이다. `--json`은 구조화된 결과를 제공한다. Image pull, 실행, source 자동 수정과
+주기적 background 실행은 수행하지 않으며 image 검증 결과는 항상 미검증으로 구분한다.
+공개 조회는 인증을 요구하지 않고 API 한도에 필요한 경우에만 `GH_TOKEN` 또는 `GITHUB_TOKEN`을
+환경으로 전달한다. 자격 증명과 API 응답 본문은 출력하지 않는다.
 
 | Repository | 확인한 source |
 | --- | --- |
 | Simulator | [d0e4b3f3b153c0709e8b333fb3ee425c0aec3619](https://github.com/ajin-scrap-monitoring/scrap-monitoring-simulator/tree/d0e4b3f3b153c0709e8b333fb3ee425c0aec3619) |
 | Edge Platform | [69a667b57325432d3511a4597b7d3552ad09b42b](https://github.com/ajin-scrap-monitoring/ajin-edge-platform/tree/69a667b57325432d3511a4597b7d3552ad09b42b) |
-| Backend | [bf89cd334398ba558af21a2ad8009cf1c7040f14](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/bf89cd334398ba558af21a2ad8009cf1c7040f14) |
-| Camera Media Service | [d84e659e016bc765ff3605f2ff26cc95fa164553](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/tree/d84e659e016bc765ff3605f2ff26cc95fa164553) |
-| Dashboard | [c506ec09586881344af7ea0b467fd3eced8c33b9](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/c506ec09586881344af7ea0b467fd3eced8c33b9) |
+| Backend | [73b9e28b135e670d6c5d6a460da3b76af16250a8](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/73b9e28b135e670d6c5d6a460da3b76af16250a8) |
+| Camera Media Service | [daf293e756004e7c740b585b089f257d557ad7ab](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/tree/daf293e756004e7c740b585b089f257d557ad7ab) |
+| Dashboard | [84b26794098486dcbfb2eae6d5cc2a95fab242ee](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/84b26794098486dcbfb2eae6d5cc2a95fab242ee) |
 
 | Component | 고정 source의 계약 | 배포 미완료 사항 |
 | --- | --- | --- |
 | Simulator Repository | `v0.5.0` Public AMD64 Simulation Server와 Visualizer, ARM64 Camera Edge Bridge image, LiDAR별 IP와 공통 UDP 8089, synthetic Motion JPEG (MJPEG) stream, Video4Linux2 (V4L2) host 구성과 90 frame 검사 | 통합 Compose 등록과 전체 시스템 수락 검사 |
-| Edge Platform | `v0.1.1` ARM64 image 5개, file token과 Camera WSS, 별도 v2 processing, uplink, orchestrator와 runtime JSON | v2 Release image, v1과 v2 배포 설정 분리, Private Package 예외, secret 권한 적용, 실제 fill algorithm과 clock 검증 |
-| Backend | AMD64 Dockerfile, v2 Bearer ingest, 저장 후 멱등 Acknowledgement (ACK), monitoring snapshot과 Server-Sent Events (SSE), Media 제어 Application Programming Interface (API), health와 readiness | Release image, file 기반 token 입력, 운영 DB와 session, Browser 역할과 필수 CSRF 검증, ingest request limit |
-| Camera Media Service | AMD64 Dockerfile, Camera별 Bearer binary JPEG ingest, 원문 token JSON, 내부 HTTP API, MJPEG live와 MP4 clip, recording policy와 retention | Release image, digest registry file, health 계약, secret 권한 적용과 storage 소유권, 통합 영상 권한 검증 |
-| Dashboard Nginx | `v0.1.2` Public AMD64 image, 정적 파일, health, TLS와 runtime reverse proxy 설정 입력 | 연동 source의 원격 반영과 Release, runtime 설정 통합 검증, upstream, timeout과 Content Security Policy (CSP) 검증 |
+| Edge Platform | `v0.1.1` Public ARM64 image 5개, file token과 Camera WSS, 별도 v2 processing, uplink, orchestrator와 runtime JSON | v2 Release image, v1과 v2 통합 배포 설정 분리, 통합 Compose secret 권한 연결, 실제 fill algorithm과 clock 인수 검증 |
+| Backend | AMD64 Dockerfile, v2 Bearer ingest, 저장 후 멱등 Acknowledgement (ACK), monitoring snapshot과 Server-Sent Events (SSE), 적재율 추이, v2 경보와 수거 사건 이력, Media 제어 Application Programming Interface (API), health와 readiness | Release image, file 기반 token 입력, 운영 DB와 session, Browser 역할과 필수 CSRF 검증, ingest request limit |
+| Camera Media Service | AMD64 Dockerfile과 공식 Server Compose, Camera별 Bearer binary JPEG ingest, 원문 token JSON, 내부 HTTP API, MJPEG live와 MP4 clip, 날짜 녹화, 유한 저장 예산과 clip 목록 health check | Release image, digest registry file, 통합 Compose의 secret 권한 및 storage 연결, 날짜 녹화의 Backend 및 Dashboard 연동, 통합 영상 권한 검증 |
+| Dashboard Nginx | `v0.2.0` Public AMD64 image, v2 모니터링과 MJPEG 및 MP4, runtime JSON과 TLS 및 reverse proxy 설정 asset | 통합 Compose mount와 Release 적용 연결, runtime 설정 및 upstream, timeout과 Content Security Policy (CSP)의 통합 검증 |
 
 Simulator Server와 Visualizer의 상태 endpoint는 `/status`다. Visualizer는 `/visual/v1/stream`과
 `/camera/v1/stream`에서 같은 canonical scene의 시각화와 1920 x 1080, 30 Frames Per Second (FPS)
@@ -135,24 +144,187 @@ Service의 내부 HTTP API는 Bearer 인증을 사용하지 않는다. Backend�
 process memory 저장과 누락을 허용하는 Cross-Site Request Forgery (CSRF) 검사를 사용하므로 운영
 인증 계약이 충족되지 않는다.
 
-Dashboard의 로컬 작업 트리는 v2 모니터링, MJPEG live, MP4 clip 연동과 runtime JSON 로딩을 제공하며
-해당 변경은 원격 `main`과 Release image에 반영되지 않았다. 연동 경로와 proxy 동작은
+Camera Media Service의 `/api/v2` 날짜 녹화는 기존 `/api/v1` clip API와 별도 계약이다. 기본값은
+비활성이며 활성화에는 `MAX_DAILY_STORAGE_BYTES`의 명시적 저장 예산이 필요하다. 원본과 다운로드
+cache의 합산 예산 및 최소 여유 공간 검사는 전체 filesystem quota나 보관 기간 보장을 대체하지
+않는다. Media Dockerfile은 UID `10002`의 non-root 사용자를 지정하며 공식 Compose는 loopback
+port와 clip 목록 health check를 사용한다. 이 Repository의 통합 Compose 연결은 구현되지 않았다.
+
+Dashboard의 공개 Release는 v2 모니터링, MJPEG live, MP4 clip 연동과 runtime JSON 로딩을 제공한다.
+Release가 게시한 참조는 다음과 같으며 이 배포 Repository의 image 실행 검증 결과와 구분한다.
+
+| 항목 | 게시 값 |
+| --- | --- |
+| Release source | `8e5f0c068955d92532420a69fa48d3eb49ad9397` |
+| image 참조 | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:5de751cfae097c208b13d00dc5729e8ba9646b82baf1b3a6cea8572d9b194862` |
+| 배포 asset | `image-reference.txt`, `nginx-config.tar.gz`, `runtime-config.example.json`, `runtime-config.schema.json`, `SHA256SUMS` |
+
+Backend와 Camera Media Service의 공개 Release는 없다. 개발용 local image를 공식 Release image로
+간주하지 않는다. Dashboard Release의 Backend 계약 기준은 해당 Release의
+`docs/contracts/backend/manifest.json`을 따르며 최신 Backend와 자동으로 일치한다고 간주하지 않는다.
+연동 경로와 proxy 동작은
 [docs/deployment-contract.md](deployment-contract.md)의 Browser 영상과 모니터링 기준을 따른다.
 현재 Release workflow는 `APP_VERSION`만 명시적으로 전달하며 나머지 build 입력은 Dockerfile
 기본값을 사용한다. 식별자의 설정 소유권은
 [docs/configuration-management.md](configuration-management.md)를 따른다.
 
-Dashboard의 실제 service 통합 검증에는 session, synthetic 입력, MJPEG, v2 SSE, MP4 Range,
-다운로드와 삭제 후 `410` 성공 결과가 있다. 내부 공유 token을 제거한 Backend 연결, 실제 HTTPS
-설정과 최신 로컬 변경 전체의 최종 통합 검증은 완료되지 않았다. Media 접근 검사는 유효한 session만
+개발용 구성의 실제 service 통합 검증에는 session, synthetic 입력, MJPEG, v2 SSE, MP4 Range,
+다운로드와 삭제 후 `410` 성공 결과가 있다. 이 결과는 공개 Release 조합의 통합 배포 수락을
+대체하지 않는다. 내부 공유 token을 제거한 Backend 연결, 통합 배포의 HTTPS 설정과
+현재 Release 조합의 최종 통합 검증은 완료되지 않았다. Media 접근 검사는 유효한 session만
 확인하며 camera 또는 pit별 접근 권한은 제공하지 않는다.
 
 Edge v2 ingest의 최대 request byte는 미확정이며 v1의 64 KiB 제한을 v2 승인값으로 사용하지 않는다.
 
-Edge Platform의 5개 GHCR Package는 모두 Private이다. Organization 정책은 Public Package를
-기본으로 사용하고 배포 제한이 있는 경우에만 사유와 인증 경계를 기록하도록 요구한다. 현재
-Component 문서는 Private 사용 절차만 기록하고 배포 제한 사유를 확정하지 않으므로 배포
-Repository는 해당 image를 통합 Release에 포함하지 않는다.
+Edge Platform의 5개 GHCR Package는 모두 Public이며 대상 Edge에서 로그인 없이 digest 고정 pull을
+사용한다.
+
+## 장비별 개발 구성
+
+장비별 개발 구성은 통합 Release와 분리되어 있다. Edge의 v2 image 4개는 고정된 Component
+source의 Dockerfile을 별도 Ubuntu test host에서 `linux/arm64`로 빌드한다. 원본 Repository의
+source, branch, version과 Release는 변경하지 않는다. 개발용 image는 local Docker storage에
+digest로 고정하고 GHCR 또는 통합 Release에 게시하지 않는다. Camera는 기존 `v0.1.1` Public
+image를 사용한다.
+
+| 대상 | 구성 | 관리 경로 |
+| --- | --- | --- |
+| Edge | LiDAR Driver 2개, LiDAR Processing, Measurement Uplink, Camera Edge, Edge Orchestrator | `/opt/ajin/deployments/simulation-v2-69a667b` |
+| Edge host | v2 Compose 시작 unit | `ajin-edge-simulation-v2.service` |
+| Edge 설정 | v2 설정 등록 JSON과 service runtime 입력 | `/opt/ajin/config/edge-simulation-v2.runtime.json` |
+| Edge runtime | v2 전용 socket, 상태와 Outbox | `/opt/ajin/runtime/simulation-v2` |
+| Server | 개발용 Backend ingress Nginx와 기존 Tailscale Serve TLS 종단 | `/srv/scrap-monitoring/development/edge-ingress` |
+| Server Backend | source mount 없는 개발용 image와 기존 Database 연결 | `/srv/scrap-monitoring/development/backend-v2-73b9e28` |
+
+Source의 `edge-v2 processing`, `edge-v2 uplink`, `edge-v2 orchestrator`와 Driver의
+`--schema-version 2.0`을 별도 개발 Compose에서 실행한다. 기존 v1 저장소와 중지된 Container는
+보존하며 v1 unit은 비활성 상태다. Camera와 Media의 endpoint, image와 credential은 유지한다.
+각 Container는 non-root, read-only root filesystem, capability 제거와 제한된 Docker `local` 로그를
+사용한다. File secret은 해당 service의 읽기 그룹으로 연결한다.
+
+개발용 Backend ingress는 `/api/edge/v2/`의 `configurations`, `measurements`, `assessments`,
+`status`에 대한 POST만 전달한다. Bearer, Idempotency-Key, request body와 query는 보존하고
+Cookie는 제거한다. 다른 method는 `403`, 다른 경로는 `404`로 거부한다. 개발용 request body
+상한은 16 MiB이며 운영 v2 계약의 승인값이 아니다. 외부 평문 port를 추가하지 않고 기존 tailnet
+내부 HTTPS를 사용한다. 이 TLS 구성은 통합 배포의 Private PKI를 대체하지 않는다.
+
+설정 등록의 저장 ACK를 확인한 뒤 정상 출력을 활성화한다. 등록 파일의 message ID와 본문은
+재시작 시 유지한다. 현재 Backend에는 설정, 측정, 판단과 상태가 schema `2.0`으로 저장되며
+Uplink가 실제 ACK를 확인한다. v2 health check는 schema, 상태와 snapshot freshness를 확인한다.
+Driver와 Camera의 상태 파일 schema `1.0`은 각각의 상태 계약이며 전송 schema와 구분한다.
+
+검증 범위는 SDK를 통한 두 Driver의 scan 수신, v2 설정 등록과 원본 point 선택, Backend의 네
+메시지 유형 저장과 ACK, Camera WSS 인증, Media의 1920 x 1080 MJPEG 90 frame decode와 약 30 FPS
+수신이다. 검증 구간에서 v2 Processing의 drop과 Uplink의 loss 및 quarantine은 0이다. 장시간
+무손실 운전, 측정 정확도, Dashboard와 MP4 종단 인수는 완료되지 않았다.
+
+개발용 등록은 미검증 보정값을 승인하지 않고 `calibration=null`을 사용한다. Point 좌표는
+`null`이고 transform은 `UNAVAILABLE`이다. v2 source는 실제 clock exporter와 연결되지 않아
+`UNSYNCED`를 보고하며 overall 상태는 `DEGRADED`다. Component 프로세스의 `HEALTHY`와 기능의
+가용성은 별도로 판정한다.
+
+Image 전달 archive의 SHA-256은
+`4a06f91400bf21b6513bbcc2b5f7271a43e9dd2aa2f1645a3cbc3206201a9dc7`이다. Docker image load 이후
+각 image의 digest, source revision과 architecture를 다시 검증한다.
+
+| 개발용 image | manifest digest |
+| --- | --- |
+| `scrap-edge-dev/lidar-driver` | `sha256:1f5a0e6cb840b3b527864a9292f7a99220caceb67a81434d645a92add114f691` |
+| `scrap-edge-dev/lidar-processing` | `sha256:256bb6b7122c6d211a2f95d158fe02eaa7eb9abef4288fc56398ddfc23b4f488` |
+| `scrap-edge-dev/measurement-uplink` | `sha256:a6bf19300070678a43729e76f20afe0e88a865bd0928ccc4cd13c06daa7de351` |
+| `scrap-edge-dev/edge-orchestrator` | `sha256:d10043d70ddaf199dbfc7db97bd65db3bfcb0ab1f364fcbddb085a8b362ee1c7` |
+
+별도 Ubuntu test host에서 고정 source의 Python 테스트 207개, Driver의 CTest 2개, 정적 검사,
+ARM64 image의 v2 명령과 runtime JSON 로딩을 검증한다. MacBook은 SSH와 파일 전달에만 사용한다.
+Source snapshot, image archive와 build metadata는 Ubuntu test host의
+`/var/tmp/scrap-edge-v2.v5q7J8`에서 관리한다.
+
+### Backend 개발용 image
+
+Backend 개발용 image는 위의 고정 source와 원본 Dockerfile을 별도 Ubuntu test host에서
+`linux/amd64`로 빌드한 산출물이다. Component source와 version은 변경하지 않으며 GHCR 또는
+Release에 게시하지 않는다. Source snapshot, image archive와 build metadata는
+`/var/tmp/scrap-backend-v2.ViPmmT`에서 관리한다.
+
+| 항목 | 값 |
+| --- | --- |
+| image 참조 | `scrap-backend-dev/backend@sha256:af7f5c8a0e38b8f9d8b84b50c0b15f7bad5547f8aa9608e382befbc210f3ab61` |
+| Component version | `0.1.0` |
+| image archive SHA-256 | `16d08ad1876836977707531afeb43f8874aac1261bfc47ca2a9e1d0ca684cefb` |
+| Python base image | `python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f` |
+| uv build image | `ghcr.io/astral-sh/uv:0.5.15@sha256:ea861f8e28b5c0e85ec14dc0f367d9d5cfa5b418024cc250219288d4fff591f1` |
+
+Ubuntu test host에서 Backend 테스트 182개, 정적 검사와 non-root 및 read-only Container 시작을
+검증한다. Image의 `app.openapi()`에서 Dashboard가 사용하는 경로와 schema는
+`docs/contracts/backend/manifest.json`과 `openapi.json`에 고정된 계약과 일치한다.
+기존 Server Database의 테이블 12개를 사용하며 schema 변경이나 migration은 없다.
+
+Server의 `scrap-monitoring-backend-check`는 위의 image를 사용하며 host source를 mount하지 않는다.
+개발용 Compose는 기존 Database bind mount, UID `1002`, GID `1004`, 내부 network와 loopback
+port를 유지한다. Runtime 입력은 root-only `backend.env`에 보관하며 기존 token을 유지한다.
+개발용 계정 `admin`과 `operator`의 비밀번호는 `ADMIN_PASSWORD`와 `OPERATOR_PASSWORD`로 주입하며
+실제 값은 Repository에 기록하지 않는다.
+`EDGE_V2_MONITORING_SOURCES`는 기존 Media pit과 등록된 Edge의 식별자를 연결한다.
+기존 Component Repository의 source, branch와 version은 변경하지 않는다.
+
+Browser session이 없는 v2 snapshot, events와 load-history 요청은 `401`이다. 유효한 session의 snapshot은
+schema `2`와 `200`을 반환하며 SSE는 `monitoring.snapshot`을 제공한다. 경보, 수거 사건과 녹화
+조회는 `200`, 영상 권한 검사는 `204`이며 Edge 수신 경로 4개의 멱등 재전송은 `200`이다.
+적재율 추이의 기본 24시간 조회는 60초 구간 1,441개와 `LATEST_STATE_PER_BUCKET`을 반환한다.
+현재 계산 불가 구간은 `valuePercent=null`, `valid=false`이며 0%로 대체하지 않는다.
+실제 Edge의 신규 데이터 저장과 ACK, loss와 quarantine `0`을 확인한다.
+적재율 계산의 가용성은 위의 Edge 기능 상태를 따르며 이 API 검증으로 측정 정확도를 승인하지 않는다.
+
+Database backup과 기존 설정은 개발용 배포 경로의 root-only `rollback`에 보관한다.
+백업의 테이블 12개는 행 수가 일치하며 활성 Database는 기존 행 수 이상을 유지한다.
+직전 Backend Container는 `scrap-monitoring-backend-check-pre-73b9e28-20261015` 이름으로 중지 상태다.
+Database는 자동 삭제나 보존 기간 제한을 설정하지 않은 개발 데이터이며 저장 공간 점검이 필요하다.
+Backend 재생성은 process memory의 Browser session을 유지하지 않으므로 재로그인이 필요하다.
+
+Server의 재현 가능한 상태 및 API 확인 명령은 다음과 같다.
+
+```bash
+sudo docker compose \
+  --env-file /srv/scrap-monitoring/development/backend-v2-73b9e28/images.env \
+  -f /srv/scrap-monitoring/development/backend-v2-73b9e28/compose.yaml ps -a
+sudo python3 /srv/scrap-monitoring/development/backend-v2-73b9e28/verify-live.py
+```
+
+API 확인 도구는 기존 계정으로 검증용 session을 생성하고 검사 후 삭제한다. Token과 계정
+입력은 출력하지 않으며 Edge 재전송은 이미 저장된 메시지의 식별자와 본문을 사용한다.
+이 검사는 Dashboard의 Browser, HTTPS routing과 MP4 본문 전달의 종단 검증을 대체하지 않는다.
+
+### Edge 상태 확인
+
+Edge의 재현 가능한 상태 확인 명령은 다음과 같다.
+
+```bash
+sudo systemctl status ajin-edge-simulation-v2.service --no-pager
+sudo docker compose \
+  --env-file /opt/ajin/deployments/simulation-v2-69a667b/edge.env \
+  --env-file /opt/ajin/deployments/simulation-v2-69a667b/images.env \
+  -f /opt/ajin/deployments/simulation-v2-69a667b/compose.v2.yaml ps -a
+```
+
+개발용 빌드 도구는 Ubuntu test host에만 둔다.
+
+| 도구 | version | 목적 | 출처 | license |
+| --- | --- | --- | --- | --- |
+| Docker Buildx | `0.37.1` | 고정 source의 ARM64 image 빌드 | [docker/buildx](https://github.com/docker/buildx) | Apache-2.0 |
+| BuildKit | `0.32.2` | 전용 builder의 빌드 실행과 cache | [moby/buildkit](https://github.com/moby/buildkit) | Apache-2.0 |
+| QEMU | `10.0.4` | AMD64 host에서 ARM64 빌드 및 검사 실행 | [QEMU](https://www.qemu.org/), [tonistiigi/binfmt](https://github.com/tonistiigi/binfmt) | QEMU GPL-2.0 및 구성 요소별 license, binfmt MIT |
+
+개발용 TLS 도구는 2개다.
+
+| 도구 | version | 목적 | 출처 | license | 현재 상태 |
+| --- | --- | --- | --- | --- | --- |
+| Nginx | `1.30.5-alpine` | Backend v2 전송 경로 allowlist | [Docker Official Image](https://hub.docker.com/_/nginx), [Nginx source](https://github.com/nginx/nginx/tree/release-1.30.5) | BSD-2-Clause | Server의 non-root, read-only Container |
+| Tailscale | `1.102.2` | 기존 tailnet의 개발용 HTTPS 종단 | [Tailscale source](https://github.com/tailscale/tailscale/tree/v1.102.2), [Serve](https://tailscale.com/docs/features/tailscale-serve) | BSD-3-Clause | Server의 기존 host 서비스 |
+
+Nginx image는
+`docker.io/library/nginx@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94`로
+고정한다. 별도 Ubuntu test host의 proxy 검사는 경로와 method 제한, credential 전달, Cookie 제거,
+body와 query 및 Idempotency-Key 보존, 개발용 body 제한을 확인한다.
 
 ## 채택한 구조
 
@@ -450,11 +622,10 @@ link는 탐색하지 않고 Repository 외부를 가리키거나 target이 없�
 
 ## 미확정 구현 결정
 
-- Edge Platform Private Package의 예외 승인 또는 Public 전환
 - 실제 Release manifest에 포함할 Backend와 Camera Media Service image digest
 - Backend와 Camera Media Service의 file 기반 token 입력
 - Backend의 내부 Media 연결에서 `MEDIA_API_TOKEN` 필수 조건 해소
 - Edge v2 ingest request byte 제한
 - Backend의 운영 Database version, migration과 session 저장 방식
-- Dashboard runtime JSON을 지원하는 검증한 Release image
+- 게시된 Dashboard Release image의 통합 배포 검증
 - Database migration, backup 선행 조건과 rollback 허용 범위

@@ -7,7 +7,7 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 
 ## 문서 체계
 
-프로젝트 문서는 역할 4개로 구분한다.
+프로젝트 문서는 역할 5개로 구분한다.
 
 | 문서 | 역할 |
 | --- | --- |
@@ -44,7 +44,23 @@ Codex는 `/AGENTS.md` 심링크를 통해 이 파일을 읽는다.
 4. `docs/configuration-management.md`에서 설정값의 정본, 저장 위치와 동기화 규칙을 확인한다.
 5. `docs/implementation.md`에서 채택한 구조, 현재 상태와 미확정 구현 결정을 확인한다.
 6. 인증서 관련 작업은 `docs/pki-operations.md`에서 Bootstrap과 반복 배포의 경계를 확인한다.
-7. 연동할 component Repository의 실제 source와 배포 계약을 확인한다.
+7. 관련 component Repository의 원격 기본 branch와 Release를 조회하고 고정 commit의 실제 source와
+   배포 계약을 확인한다. 로컬 clone의 HEAD를 원격 최신 상태로 간주하지 않는다.
+   `tools/check-component-updates`는 정본에 기록한 source와 Release 기준의 변경 여부를 읽기 전용으로
+   확인한다. 변경된 계약의 source 검토와 문서 반영을 자동으로 수행하지 않는다.
+
+## 현재 작업 경계
+
+외부 component의 진행상황에 맞춰 이 Repository의 배포 구성을 로컬에서 정비한다.
+
+- 작업 단위 시작 시 관련 Repository의 source revision, Release와 image 게시 상태 확인
+- 확인한 source와 배포 영향은 `docs/implementation.md`에 기록하고 과거 변경 이력은 누적하지 않음
+- Source 구현, Release asset 게시, image 실행과 통합 수락 검사 결과를 구분
+- Component Repository는 읽기 전용으로 확인하고 로컬 배포 구성과 검증 코드만 수정
+- 외부 미완료 계약은 미완료 상태로 유지하고 Component 로직이나 임시 인증 대체 구현을 추가하지 않음
+- 검증은 로컬 정적 검사와 장비 및 Container runtime을 변경하지 않는 격리된 단위 검사로 제한
+- Image build, Container 실행과 실제 배포 실험은 별도 명시적 요청 전까지 수행하지 않음
+- Edge와 Server의 설정, Container, 데이터와 자격 증명은 변경하지 않음
 
 ## 변경 원칙
 
