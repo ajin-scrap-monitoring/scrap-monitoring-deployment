@@ -21,6 +21,8 @@ class RepositoryStructureTest(unittest.TestCase):
             "delivery/install-container-runtime",
             "delivery/install-environment",
             "delivery/dashboard_configuration.py",
+            "delivery/edge_configuration.py",
+            "delivery/validate-edge-configuration",
             "delivery/install-dashboard-configuration",
             "delivery/validate-dashboard-configuration",
             "delivery/runtime-requirements.sh",

@@ -41,7 +41,7 @@ trust를 등록한다.
 
 ### 3. 대상 설정
 
-아래 설정 절에서 두 대상의 환경 파일을 설치하고 현장 값을 설정한다. Edge의 `edge.json`, runtime
+아래 설정 절에서 두 대상의 환경 파일을 설치하고 현장 값을 설정한다. Edge의 v2 runtime JSON, runtime
 directory, camera device와 Root CA 파일, Server의 Backend와 Media storage directory가 존재해야 한다.
 
 ### 4. Credential Bootstrap
@@ -68,20 +68,19 @@ credential Bootstrap을 완료한다.
 sudo delivery/install-environment --target edge
 ```
 
-`/etc/scrap-monitoring/edge.env`의 다음 15개 환경변수를 현장 값으로 설정한다.
+`/etc/scrap-monitoring/edge.env`의 다음 환경변수를 현장 값으로 설정한다.
 
 | 환경변수 | 설정 또는 확인 값 |
 | --- | --- |
 | `SITE_ID` | 현장 식별자 |
 | `EDGE_ID` | Edge 장비 식별자 |
-| `CONFIG_REVISION` | `edge.json`의 승인된 revision |
+| `CONFIG_REVISION` | v2 설정 등록의 승인된 revision |
 | `CAMERA_ID` | 연결한 홈캠 식별자 |
-| `RUNTIME_DIR` | Edge runtime 경로 |
-| `CONFIG_FILE` | 승인된 `edge.json` 경로 |
+| `RUNTIME_DIR` | 기존 v1과 분리된 Edge runtime 경로 |
+| `CONFIG_FILE` | 승인된 v2 runtime JSON 경로 |
 | `LIDAR_A_IP` | 첫 번째 LiDAR IP |
 | `LIDAR_B_IP` | 두 번째 LiDAR IP |
-| `MEASUREMENT_URL` | Backend metrics ingest HTTPS endpoint |
-| `HEARTBEAT_URL` | Backend heartbeat HTTPS endpoint |
+| `BACKEND_ORIGIN` | Edge v2 수신 API를 제공하는 Backend HTTPS origin |
 | `MEDIA_WSS_URL` | Camera Media Service WSS endpoint |
 | `EDGE_TOKEN_FILE` | 설치한 Edge Platform token 파일 경로 |
 | `CAMERA_TOKEN_FILE` | 설치한 Camera Edge token 파일 경로 |

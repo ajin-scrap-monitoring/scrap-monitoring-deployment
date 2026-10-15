@@ -27,8 +27,8 @@ Dashboard runtime JSON 최초 설치, 기존 파일 보존, 필드와 식별자 
 전환을 사용하며 실패 시 기존 설정을 변경하지 않는다. 재현 명령과 설정 소유권은
 [docs/configuration-management.md](configuration-management.md)의 Dashboard 설정을 따른다.
 두 도구와 Python module은 hardware 및 simulation Server의 Online Package와 Offline Bundle에만
-포함된다. Compose mount, Backend 설정 자동 주입, Release 적용 및 systemd와의 연결은 구현되지
-않았다.
+포함된다. Server Release 적용과 systemd 시작은 runtime JSON 검증을 수행한다. Compose mount와
+Backend 식별자 자동 주입은 구현되지 않았다.
 
 `tests/test_dashboard_configuration.py`는 식별자 경계, 잘못된 JSON, 기존 byte 및 inode 보존,
 동시 최초 설치, file mode, 실제 root 소유권과 link 경로 거부를 검증한다. 별도 Ubuntu test host의
@@ -87,9 +87,11 @@ target, scenario, mode, platform과 Manifest digest를 고정한 descriptor가 �
 `targets/<target>` 경로로 포함한다. systemd와 Compose 실행 경로는 scenario와 무관하게 유지한다.
 현재 Compose service는 전체 시스템의 호환 실행 계약이 충족되지 않아 비어 있다. simulation 환경 파일은
 Server의 LiDAR별 IP와 공통 UDP 8089, Visualizer publish address, Edge의 LiDAR endpoint와 synthetic Camera
-device 입력을 정의한다. 현재 Edge 환경 schema와 설정 검증은 Edge v1 계약을 사용하며 v2 runtime
-JSON을 소비하지 않는다. 배포 기준의 v2 연동에 필요한 runtime JSON 입력, v1과 분리된 socket 및
-storage 연결과 목표 Compose는 구현되지 않았다. simulation 구성과 적용 순서는
+device 입력을 정의한다. Edge 환경 schema `4`는 v2 runtime JSON과 `BACKEND_ORIGIN`을 사용한다.
+`delivery/edge_configuration.py`와 `delivery/validate-edge-configuration`은 배포 입력 구조를 검증하며
+Component의 domain validator를 복제하지 않는다. 배포 적용기는 검증한 정확한 byte의 SHA-256을
+생성하며 Edge systemd도 실행 전에 같은 입력을 검사한다. Socket과 storage의 실제 mount 연결 및
+목표 Compose는 구현되지 않았다. simulation 구성과 적용 순서는
 [docs/simulation-deployment.md](simulation-deployment.md)를 따른다.
 
 실제 통합 version manifest와 Release는 없다. 실제 장비에서 전체 시스템을 연결하는 통합 수락
@@ -395,6 +397,7 @@ scrap-monitoring-deployment/
 |   |-- apply-release
 |   |-- auth-secret-permissions.sh
 |   |-- dashboard_configuration.py
+|   |-- edge_configuration.py
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
 |   |-- install-container-runtime
@@ -408,6 +411,7 @@ scrap-monitoring-deployment/
 |   |-- validate-auth-secrets
 |   |-- validate-dashboard-configuration
 |   |-- validate-environment
+|   |-- validate-edge-configuration
 |   `-- verify-release
 |-- docs/
 |   |-- configuration-management.md
@@ -477,6 +481,9 @@ scrap-monitoring-deployment/
 |   |-- test_delivery_release.py
 |   |-- test_entrypoints.py
 |   |-- test_environment_installation.py
+|   |-- test_edge_configuration.py
+|   |-- test_server_preflight.py
+|   |-- test_component_updates.py
 |   |-- test_markdown.mjs
 |   |-- test_pki.py
 |   |-- test_public_content.py
@@ -489,6 +496,7 @@ scrap-monitoring-deployment/
 |   |-- validate-repository
 |   `-- validate-test-host
 |-- tools/
+|   |-- check-component-updates
 |   |-- go.mod
 |   |-- go.sum
 |   |-- lint-markdown.mjs

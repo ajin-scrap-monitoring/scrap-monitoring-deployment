@@ -38,6 +38,7 @@ COMMON_MEMBERS = {
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
     "delivery/release_applier.py",
+    "delivery/edge_configuration.py",
     "delivery/release_verifier.py",
     "delivery/retire-auth-secret",
     "delivery/validate-auth-secrets",
@@ -52,7 +53,7 @@ COMMON_MEMBERS = {
     "release-package.json",
 }
 TARGET_MEMBERS = {
-    "edge": set(),
+    "edge": {"delivery/validate-edge-configuration"},
     "server": {
         "delivery/dashboard_configuration.py",
         "delivery/install-dashboard-configuration",
