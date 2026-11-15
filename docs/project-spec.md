@@ -36,24 +36,11 @@ Browser로 구성한다. Edge 장비에서는 LiDAR 처리와 Camera Edge Agent�
 Edge와 Server는 서로 다른 장비와 CPU 아키텍처를 사용하므로 독립적으로 설치하고 재시작할 수
 있어야 한다. 두 배포 단위의 호환 버전은 하나의 통합 배포 Release에서 함께 관리한다.
 
-배포 시나리오는 2개다.
-
-| 시나리오 | Edge 구성 | Server 구성 |
-| --- | --- | --- |
-| `hardware` | LiDAR SDK와 실제 LiDAR 2대, 실제 Camera | Backend, Camera Media Service, Dashboard와 TLS 종단 |
-| `simulation` | LiDAR Processing, Camera Edge와 Camera Edge Bridge, V4L2 loopback device | Simulator Server, Visualizer, Backend, Camera Media Service, Dashboard와 TLS 종단 |
-
-두 시나리오의 Edge Platform과 Backend는 동일한 v2 연동 계약을 배포 기준으로 사용한다.
-시나리오는 센서 입력과 보조 component를 구분하며 연동 계약 version을 구분하지 않는다.
-v2 적용 범위는 소프트웨어 구성, 설정과 데이터 계약이며 장비 교체를 전제하지 않는다.
-구현과 통합 검증은 simulation을 선행하고 실제 hardware의 운영 적용은 별도 검증을 요구한다.
-
-`simulation`은 Simulator Repository의 Simulation Server, Visualizer, Camera Edge Bridge 3개
-component를 사용한다. Server는 LiDAR별 IP 주소 2개에서 각각 User Datagram Protocol (UDP) 8089를
-공개한다. Edge Platform은 `LIDAR_A_IP`와 `LIDAR_B_IP`로 두 endpoint에 실제 RPLIDAR Software
-Development Kit (SDK) 경로로 연결한다. Visualizer는 synthetic camera WebSocket stream을 제공하고, Edge의
-Camera Edge Bridge는 이를 Video4Linux (V4L2) loopback device에 초당 30 frame으로 기록한다. Camera
-Edge는 해당 device를 실제 Camera와 같은 입력으로 사용한다.
+Edge와 Backend는 동일한 v2 연동 계약을 배포 기준으로 사용한다. v2 적용 범위는 소프트웨어 구성,
+설정과 데이터 계약이며 장비 교체를 전제하지 않는다. Edge는 LiDAR SDK와 실제 LiDAR 2대, 실제
+Camera를 사용하고 Server는 Backend, PostgreSQL, Camera Media Service, Dashboard와 TLS 종단을
+사용한다. Component의 현재 계약이 이 Repository의 정책과 충돌하면 Component의 계약을 따르고 이
+Repository는 그 계약을 참조한다.
 
 ## 배포 경로
 
@@ -91,9 +78,10 @@ Docker Compose는 각 대상의 컨테이너, 네트워크, volume, health check
 시작하거나 중지하는 host 수명 주기 경계로만 사용한다. 애플리케이션 프로세스 구성을
 Docker Compose와 systemd에 중복하여 정의하지 않는다.
 
-Dashboard는 Camera Media Service의 Motion JPEG (MJPEG) 실시간 영상과 MP4 녹화를 같은 HTTPS
-origin으로 사용한다. Backend는 사용자 인증과 녹화 제어를 담당하며 영상 byte는 Nginx가 Media에서
-Browser로 전달한다. Browser의 설정 권한은 Backend가 사용자 session의 역할로 강제한다.
+Dashboard는 Camera Media Service의 Motion JPEG (MJPEG) 실시간 영상, HTTP Live Streaming (HLS)
+날짜 녹화와 MP4 영상을 같은 HTTPS origin으로 사용한다. Backend는 사용자 인증과 녹화 제어를
+담당하며 영상 byte는 Nginx가 Media에서 Browser로 전달한다. Browser의 설정 권한은 Backend가
+사용자 session의 역할로 강제한다.
 정확한 요청 경로와 권한 검사는 [docs/deployment-contract.md](deployment-contract.md)를 따른다.
 
 Dashboard의 pit ID와 camera ID는 환경별 runtime 설정으로 제공하는 방향을 채택한다. 동일한
@@ -111,8 +99,8 @@ Release asset 유형은 3개다.
 
 | asset | 수량 | 내용 |
 | --- | --- | --- |
-| Online Package | 대상과 시나리오별 4개 | 대상별 Compose, Release manifest, 설정 template, 적용 도구와 외부 고지 |
-| Offline Bundle | 대상과 시나리오별 4개 | Online Package 내용과 대상 CPU 아키텍처용 컨테이너 image archive |
+| Online Package | 대상별 2개 | 대상별 Compose, Release manifest, 설정 template, 적용 도구와 외부 고지 |
+| Offline Bundle | 대상별 2개 | Online Package 내용과 대상 CPU 아키텍처용 컨테이너 image archive |
 | Checksum manifest | Release당 1개 | 모든 배포 asset의 Secure Hash Algorithm 256-bit (SHA-256) checksum |
 
 Release는 모든 asset을 첨부한 뒤 게시한다. 게시된 Release의 tag와 asset은 변경하지 않고,
@@ -133,6 +121,13 @@ Public GHCR (GitHub Container Registry) Package로 제공한다. 배포 제한�
 | 배포 image 참조 | `ghcr.io/<organization>/<image>@sha256:<digest>` |
 | image 공개 pull | 자격 증명 없이 허용 |
 | image 빌드 | 기능별 Repository CI에서 Docker Buildx 사용 |
+
+Component Release가 digest 고정 image를 제공하고 통합 배포 Repository가 정한 최소 호환 기준을
+충족하면 그 image를 사용한다. Release image가 없거나 기준에 못 미치면 통합 배포 Repository의
+수동 실행 CI가 component의 원격 `main` 최신 full commit을 component 자체 Dockerfile로 빌드하여
+`ghcr.io/<organization>/scrap-monitoring-deployment/<image>:sha-<full-git-sha>` Public Package로
+게시한다. 이 image는 `latest` tag 없이 digest로만 참조하며 사람이 candidate manifest에 반영한다.
+Component가 Release를 게시하면 사람이 다음 CI 실행 결과로 candidate manifest를 갱신한다.
 
 통합 배포 Repository는 image tag를 배포 식별자로 사용하지 않고 Release manifest에 기록한
 SHA-256 digest로 대상을 고정한다. 통합 Release의 `vMAJOR.MINOR.PATCH` tag에는 image digest를

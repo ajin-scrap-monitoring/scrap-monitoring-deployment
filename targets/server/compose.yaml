@@ -1,0 +1,289 @@
+# Server target. Component services follow the Release contracts of Backend,
+# Camera Media Service and Dashboard; see docs/implementation.md.
+name: scrap-monitoring-server
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 20m
+    max-file: "5"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  step-ca:
+    image: ${STEP_CA_IMAGE}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - /usr/local/bin/step-ca
+      - --password-file
+      - /run/secrets/step_ca_password
+      - /srv/scrap-monitoring/pki/step-ca/config/ca.json
+    environment:
+      STEPPATH: /srv/scrap-monitoring/pki/step-ca
+    ports:
+      - 127.0.0.1:9000:9000
+    secrets:
+      - step_ca_password
+    volumes:
+      - type: bind
+        source: /srv/scrap-monitoring/pki/step-ca
+        target: /srv/scrap-monitoring/pki/step-ca
+        bind:
+          create_host_path: false
+    networks:
+      - pki
+    healthcheck:
+      test:
+        - CMD
+        - step
+        - ca
+        - health
+        - --ca-url
+        - https://step-ca:9000
+        - --root
+        - /srv/scrap-monitoring/pki/step-ca/certs/root_ca.crt
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 512m
+    shm_size: 128m
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/database/postgres.env
+        required: true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: scrap_monitoring
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-local=peer --auth-host=scram-sha-256
+    command: [postgres, -c, max_connections=40, -c, shared_buffers=128MB]
+    volumes:
+      - type: bind
+        source: ${POSTGRES_DATA_PATH:?}
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${POSTGRESQL_INIT_DIRECTORY:?}/init.sh
+        target: /docker-entrypoint-initdb.d/10-scrap.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${POSTGRESQL_INIT_DIRECTORY:?}
+        target: /opt/scrap-postgresql
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - database
+    healthcheck:
+      # The marker prevents a failed first initialization from appearing ready after restart.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U postgres -d scrap_monitoring
+          && test -f "$$PGDATA/.scrap-initialized"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    logging: *logging
+
+  scrap-backend:
+    image: ${SCRAP_MONITORING_BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *hardening
+    read_only: true
+    cpus: 1
+    mem_limit: 512m
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    # The Backend background workers require a single uvicorn worker.
+    entrypoint: [uvicorn, src.app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1"]
+    env_file:
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/backend/backend.env
+        required: true
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/backend/edge-v2-devices.env
+        required: true
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+      - services
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    logging: *logging
+
+  # One-shot Alembic and data management job; started only with the management profile.
+  backend-manage:
+    image: ${SCRAP_MONITORING_BACKEND_IMAGE}
+    profiles: [management]
+    restart: "no"
+    <<: *hardening
+    read_only: true
+    cpus: 1
+    mem_limit: 512m
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    entrypoint: [python]
+    command: [-m, src.app.cli.db, current]
+    env_file:
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/database/migration.env
+        required: true
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+    healthcheck:
+      disable: true
+    logging: *logging
+
+  camera-media:
+    image: ${AJIN_CAMERA_MEDIA_SERVICE_IMAGE}
+    restart: unless-stopped
+    <<: *hardening
+    cpus: 2
+    mem_limit: 3g
+    stop_grace_period: 60s
+    env_file:
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/media/media.env
+        required: true
+      - path: ${SCRAP_SECRETS_DIRECTORY:-/srv/scrap-monitoring/secrets}/media/edge-auth.env
+        required: true
+    environment:
+      MEDIA_API_HOST: 0.0.0.0
+      MEDIA_API_PORT: "8889"
+      MEDIA_INGEST_HOST: 0.0.0.0
+      MEDIA_INGEST_PORT: "8443"
+      MAX_FRAME_BYTES: ${MEDIA_MAX_FRAME_BYTES:?}
+      MEDIA_STORAGE_PATH: /var/lib/camera-media
+      MEDIA_EXPECTED_FS_UUID: ${MEDIA_EXPECTED_FS_UUID:?}
+      MEDIA_EXPECTED_DEVICE: ${MEDIA_EXPECTED_DEVICE:?}
+      MEDIA_MOUNT_WITNESS_PATH: /run/media-host/sd
+    volumes:
+      - type: bind
+        source: ${MEDIA_STORAGE_PATH:?}
+        target: /var/lib/camera-media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_WITNESS_PARENT:?}
+        target: /run/media-host
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rslave
+    networks:
+      - services
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8889/healthz', timeout=3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  dashboard:
+    image: ${SCRAP_MONITORING_DASHBOARD_IMAGE}
+    restart: unless-stopped
+    <<: *hardening
+    read_only: true
+    cpus: 0.5
+    mem_limit: 128m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${DASHBOARD_TMPFS_SIZE:?}
+    # Nginx user 101 reads the Server private key through the key group.
+    group_add:
+      - "${DASHBOARD_SCRAP_ADMIN_GID:?}"
+    ports:
+      - ${SERVER_BIND_ADDRESS:?}:${SERVER_HTTPS_PORT:?}:8443
+    secrets:
+      - dashboard_tls_private_key
+    volumes:
+      - type: bind
+        source: ${DASHBOARD_TLS_CERTIFICATE_FILE:?}
+        target: /run/certs/dashboard-fullchain.pem
+        read_only: true
+      - type: bind
+        source: /etc/scrap-monitoring/dashboard/runtime-config.json
+        target: /usr/share/nginx/html/runtime-config.json
+        read_only: true
+      - type: bind
+        source: ./dashboard/nginx/https.conf
+        target: /etc/nginx/conf.d/https.conf
+        read_only: true
+      - type: bind
+        source: ./dashboard/nginx/upstreams/10-dashboard-upstreams.conf
+        target: /etc/nginx/upstreams/10-dashboard-upstreams.conf
+        read_only: true
+      - type: bind
+        source: ./dashboard/nginx/upstreams/20-edge-ingest-upstreams.conf
+        target: /etc/nginx/upstreams/20-edge-ingest-upstreams.conf
+        read_only: true
+      - type: bind
+        source: ./dashboard/nginx/runtime/20-dashboard-locations.conf
+        target: /etc/nginx/runtime/20-dashboard-locations.conf
+        read_only: true
+      - type: bind
+        source: ./dashboard/nginx/runtime/30-edge-ingest-locations.conf
+        target: /etc/nginx/runtime/30-edge-ingest-locations.conf
+        read_only: true
+    networks:
+      - services
+    depends_on:
+      scrap-backend:
+        condition: service_healthy
+      camera-media:
+        condition: service_healthy
+    logging: *logging
+
+secrets:
+  dashboard_tls_private_key:
+    file: ${DASHBOARD_TLS_PRIVATE_KEY_FILE:?}
+  step_ca_password:
+    file: /srv/scrap-monitoring/pki/step-ca/secrets/intermediate_ca_password
+
+networks:
+  database:
+    internal: true
+  services: {}
+  pki: {}

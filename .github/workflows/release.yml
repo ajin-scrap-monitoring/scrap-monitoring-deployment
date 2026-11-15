@@ -85,10 +85,15 @@ jobs:
       - name: Build and verify release assets
         run: |
           release/pull-images "${RELEASE_MANIFEST}" build/images
+          .venv/bin/python release/fetch-dashboard-assets \
+            --version "${RELEASE_TAG}" \
+            --manifest "${RELEASE_MANIFEST}" \
+            --output build/dashboard
           .venv/bin/python release/build-assets \
             --version "${RELEASE_TAG}" \
             --manifest "${RELEASE_MANIFEST}" \
             --image-directory build/images \
+            --dashboard-asset-directory build/dashboard \
             --output dist
           .venv/bin/python release/verify-assets \
             --version "${RELEASE_TAG}" \
@@ -129,11 +134,9 @@ jobs:
           expected_assets="$(
             printf '%s\n' "SHA256SUMS"
             for target in edge server; do
-              for scenario in hardware simulation; do
-                for mode in online offline; do
-                  printf 'scrap-monitoring-%s-%s-%s-%s.tar.gz\n' \
-                    "${target}" "${scenario}" "${RELEASE_TAG}" "${mode}"
-                done
+              for mode in online offline; do
+                printf 'scrap-monitoring-%s-%s-%s.tar.gz\n' \
+                  "${target}" "${RELEASE_TAG}" "${mode}"
               done
             done | sort
           )"
@@ -167,11 +170,9 @@ jobs:
           expected_assets="$(
             printf '%s\n' "SHA256SUMS"
             for target in edge server; do
-              for scenario in hardware simulation; do
-                for mode in online offline; do
-                  printf 'scrap-monitoring-%s-%s-%s-%s.tar.gz\n' \
-                    "${target}" "${scenario}" "${RELEASE_TAG}" "${mode}"
-                done
+              for mode in online offline; do
+                printf 'scrap-monitoring-%s-%s-%s.tar.gz\n' \
+                  "${target}" "${RELEASE_TAG}" "${mode}"
               done
             done | sort
           )"

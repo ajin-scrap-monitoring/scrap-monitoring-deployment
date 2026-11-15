@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -48,38 +49,42 @@ def manifest_with_components() -> dict[str, object]:
         component("edge-component", "edge", "a")
     ]
     manifest["targets"]["server"]["components"] = [
-        component("server-component", "server", "b")
+        component("scrap-monitoring-dashboard", "server", "b")
     ]
-    for target, component_name in (
-        ("edge", "edge-component"),
-        ("server", "server-component"),
-    ):
-        manifest["targets"][target]["scenarios"] = {
-            "hardware": [component_name],
-            "simulation": [component_name],
-        }
     return manifest
 
 
-def manifest_with_scenario_components() -> dict[str, object]:
-    manifest = manifest_with_components()
-    edge_simulator = component("edge-simulator", "edge-simulator", "c")
-    server_visualizer = component("server-visualizer", "server-visualizer", "d")
-    manifest["targets"]["edge"]["components"].append(edge_simulator)
-    manifest["targets"]["server"]["components"].append(server_visualizer)
-    manifest["targets"]["edge"]["scenarios"]["simulation"] = ["edge-simulator"]
-    manifest["targets"]["server"]["scenarios"]["simulation"] = ["server-visualizer"]
-    return manifest
+def dashboard_asset_directory(temporary_path: Path) -> Path:
+    directory = temporary_path / "dashboard-assets"
+    directory.mkdir(parents=True, exist_ok=True)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name in (
+            "https.conf",
+            "upstreams/10-dashboard-upstreams.conf",
+            "runtime/20-dashboard-locations.conf",
+        ):
+            content = f"# fixture {name}\n".encode()
+            info = tarfile.TarInfo(f"deploy/example/nginx/{name}")
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    content = buffer.getvalue()
+    (directory / "deployment-example.tar.gz").write_bytes(content)
+    (directory / "SHA256SUMS").write_text(
+        f"{hashlib.sha256(content).hexdigest()}  deployment-example.tar.gz\n",
+        encoding="utf-8",
+    )
+    (directory / "release-version.txt").write_text("v0.1.0\n", encoding="utf-8")
+    return directory
 
 
 def image_directory(temporary_path: Path) -> Path:
     directory = temporary_path / "images"
     directory.mkdir(parents=True, exist_ok=True)
     for target in ("edge", "server"):
-        for scenario in ("hardware", "simulation"):
-            directory.joinpath(f"{target}-{scenario}-images.tar").write_bytes(
-                f"{target} {scenario} image archive fixture\n".encode()
-            )
+        directory.joinpath(f"{target}-images.tar").write_bytes(
+            f"{target} image archive fixture\n".encode()
+        )
     return directory
 
 
@@ -100,13 +105,58 @@ class ReleaseManifestTest(unittest.TestCase):
             "schemaVersion": 2,
             "version": "v0.0.1",
             "target": "edge",
-            "scenario": "hardware",
             "mode": "online",
             "platform": "linux/amd64",
             "manifestSha256": "a" * 64,
         }
         with self.assertRaises(ValidationError):
             Draft202012Validator(self.package_schema).validate(package)
+
+    def build_component(self) -> dict[str, object]:
+        entry = component(
+            "ajin-camera-media-service", "scrap-monitoring-deployment/x", "c"
+        )
+        del entry["version"]
+        entry["imageProvider"] = "deployment-build"
+        return entry
+
+    def test_deployment_build_component_has_no_version_and_own_namespace(self) -> None:
+        validator = Draft202012Validator(self.schema)
+        manifest = copy.deepcopy(self.manifest)
+        manifest["targets"]["server"]["components"] = [self.build_component()]
+        validator.validate(manifest)
+        sys.path.insert(0, str(REPOSITORY / "delivery"))
+        import release_verifier
+
+        release_verifier.validate_component(
+            manifest["targets"]["server"]["components"][0]
+        )
+
+        with_version = copy.deepcopy(manifest)
+        with_version["targets"]["server"]["components"][0]["version"] = "v0.1.0"
+        with self.assertRaises(ValidationError):
+            validator.validate(with_version)
+        with self.assertRaises(ValueError):
+            release_verifier.validate_component(
+                with_version["targets"]["server"]["components"][0]
+            )
+
+        foreign = copy.deepcopy(manifest)
+        foreign["targets"]["server"]["components"][0]["image"] = (
+            "ghcr.io/ajin-scrap-monitoring/other@sha256:" + "c" * 64
+        )
+        with self.assertRaises(ValidationError):
+            validator.validate(foreign)
+        with self.assertRaises(ValueError):
+            release_verifier.validate_component(
+                foreign["targets"]["server"]["components"][0]
+            )
+
+    def test_component_release_requires_version(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        del manifest["targets"]["edge"]["components"][0]["version"]
+        with self.assertRaises(ValidationError):
+            Draft202012Validator(self.schema).validate(manifest)
 
     def test_mutable_image_reference_is_rejected(self) -> None:
         manifest = copy.deepcopy(self.manifest)
@@ -294,6 +344,11 @@ class ReleaseManifestTest(unittest.TestCase):
 set -euo pipefail
 printf '%s\\n' "$*" >> "${DOCKER_LOG}"
 if [[ "$1" == "pull" ]]; then
+  printf '%s\\n' "$3" > "${DOCKER_LOG}.platform"
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  printf '%s\\n' "${FAKE_PLATFORM:-$(cat "${DOCKER_LOG}.platform")}"
   exit 0
 fi
 if [[ "$1" == "image" && "$2" == "save" && "$3" == "--output" ]]; then
@@ -306,7 +361,7 @@ exit 1
             )
             fake_docker.chmod(0o755)
             manifest_path.write_text(
-                json.dumps(manifest_with_scenario_components()),
+                json.dumps(manifest_with_components()),
                 encoding="utf-8",
             )
             environment = os.environ.copy()
@@ -321,11 +376,18 @@ exit 1
                 env=environment,
             )
 
+            mismatch = subprocess.run(
+                [str(PULL_IMAGES), str(manifest_path), str(temporary_path / "other")],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={**environment, "FAKE_PLATFORM": "linux/s390x"},
+            )
+            self.assertNotEqual(0, mismatch.returncode)
+            self.assertIn("does not match", mismatch.stderr)
+
             for target in ("edge", "server"):
-                for scenario in ("hardware", "simulation"):
-                    self.assertTrue(
-                        (output / f"{target}-{scenario}-images.tar").is_file()
-                    )
+                self.assertTrue((output / f"{target}-images.tar").is_file())
             pulled_images = {
                 line.removeprefix("pull --platform linux/arm64 ")
                 if line.startswith("pull --platform linux/arm64 ")
@@ -338,9 +400,7 @@ exit 1
             self.assertEqual(
                 {
                     f"ghcr.io/ajin-scrap-monitoring/edge@sha256:{'a' * 64}",
-                    f"ghcr.io/ajin-scrap-monitoring/edge-simulator@sha256:{'c' * 64}",
                     f"ghcr.io/ajin-scrap-monitoring/server@sha256:{'b' * 64}",
-                    f"ghcr.io/ajin-scrap-monitoring/server-visualizer@sha256:{'d' * 64}",
                 },
                 pulled_images,
             )
@@ -364,6 +424,8 @@ class ReleaseAssetsTest(unittest.TestCase):
                 str(manifest_path),
                 "--image-directory",
                 str(images),
+                "--dashboard-asset-directory",
+                str(dashboard_asset_directory(temporary_path)),
                 "--output",
                 str(output),
             ],
@@ -377,8 +439,8 @@ class ReleaseAssetsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
             images = image_directory(temporary_path)
-            real_edge_images = temporary_path / "real-edge-hardware-images.tar"
-            edge_images = images / "edge-hardware-images.tar"
+            real_edge_images = temporary_path / "real-edge-images.tar"
+            edge_images = images / "edge-images.tar"
             manifest_path = temporary_path / "v0.0.1.json"
             real_edge_images.write_bytes(b"edge image archive fixture\n")
             edge_images.unlink()
@@ -397,6 +459,8 @@ class ReleaseAssetsTest(unittest.TestCase):
                     str(manifest_path),
                     "--image-directory",
                     str(images),
+                    "--dashboard-asset-directory",
+                    str(dashboard_asset_directory(temporary_path)),
                     "--output",
                     str(temporary_path / "output"),
                 ],
@@ -429,6 +493,8 @@ class ReleaseAssetsTest(unittest.TestCase):
                         str(manifest_path),
                         "--image-directory",
                         str(images),
+                        "--dashboard-asset-directory",
+                        str(dashboard_asset_directory(temporary_path)),
                         "--output",
                         str(destination),
                     ],
@@ -438,9 +504,8 @@ class ReleaseAssetsTest(unittest.TestCase):
                 )
 
             expected = {
-                f"scrap-monitoring-{target}-{scenario}-v0.0.1-{mode}.tar.gz"
+                f"scrap-monitoring-{target}-v0.0.1-{mode}.tar.gz"
                 for target in ("edge", "server")
-                for scenario in ("hardware", "simulation")
                 for mode in ("online", "offline")
             }
             expected.add("SHA256SUMS")
@@ -544,12 +609,10 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertEqual(expected_digest, actual_digest)
 
     def assert_package_members(self, output: Path) -> None:
-        edge_online = output / "scrap-monitoring-edge-hardware-v0.0.1-online.tar.gz"
-        edge_offline = output / "scrap-monitoring-edge-hardware-v0.0.1-offline.tar.gz"
-        server_online = output / "scrap-monitoring-server-hardware-v0.0.1-online.tar.gz"
-        server_offline = (
-            output / "scrap-monitoring-server-hardware-v0.0.1-offline.tar.gz"
-        )
+        edge_online = output / "scrap-monitoring-edge-v0.0.1-online.tar.gz"
+        edge_offline = output / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
+        server_online = output / "scrap-monitoring-server-v0.0.1-online.tar.gz"
+        server_offline = output / "scrap-monitoring-server-v0.0.1-offline.tar.gz"
 
         with tarfile.open(edge_online, "r:gz") as archive:
             names = set(archive.getnames())
@@ -571,7 +634,6 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertNotIn("release/pull-images", names)
             self.assertFalse(any(name.startswith("images/") for name in names))
             self.assertEqual("edge", package["target"])
-            self.assertEqual("hardware", package["scenario"])
             self.assertEqual("online", package["mode"])
             self.assertEqual("linux/arm64", package["platform"])
             self.assertEqual(
@@ -613,15 +675,15 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertEqual(
                 0o755, archive.getmember("delivery/validate-edge-configuration").mode
             )
-            self.assertIn("images/edge-hardware-images.tar", archive.getnames())
+            self.assertIn("images/edge-images.tar", archive.getnames())
             self.assertIn("delivery/offline/bundle_importer.py", archive.getnames())
             self.assertIn("delivery/offline/import-bundle", archive.getnames())
             self.assertNotIn("delivery/quick-start", archive.getnames())
             self.assertNotIn("delivery/online/fetch-release", archive.getnames())
             package = json.load(archive.extractfile("release-package.json"))
-            self.assertEqual("images/edge-hardware-images.tar", package["imageArchive"])
+            self.assertEqual("images/edge-images.tar", package["imageArchive"])
         with tarfile.open(server_offline, "r:gz") as archive:
-            self.assertIn("images/server-hardware-images.tar", archive.getnames())
+            self.assertIn("images/server-images.tar", archive.getnames())
             self.assertIn(
                 "delivery/install-dashboard-configuration", archive.getnames()
             )

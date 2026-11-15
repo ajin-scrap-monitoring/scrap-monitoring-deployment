@@ -7,3 +7,7 @@ Edge와 Server의 확인된 component image가 모두 준비된 version만 이 �
 추가한다. Image는 GitHub Container Registry (GHCR)의 Secure Hash Algorithm 256-bit (SHA-256)
 digest로 고정한다. Component별 Public source Repository, Release version과 full Git commit을
 함께 기록하며 자격 증명과 현장별 값은 포함하지 않는다.
+
+작업용 `candidate.json`은 version을 `v0.0.0`으로 두고 `release/update-candidate`가 갱신한다.
+`release/update-candidate --finalize <version>`이 version manifest를 만든다. 절차는
+[`docs/implementation.md`](../../docs/implementation.md)의 Component image 선택과 Release 절차를 따른다.

@@ -14,22 +14,21 @@ LIBRARY = REPOSITORY / "delivery/auth-secret-permissions.sh"
 
 
 class ReaderGroupTest(unittest.TestCase):
-    def test_four_consumers_have_distinct_reader_group_names(self) -> None:
+    def test_edge_consumers_have_distinct_reader_group_names(self) -> None:
         names = []
-        for target in ("edge", "server"):
-            for kind in ("edge-backend", "camera-media"):
-                result = run(
-                    "bash",
-                    "-c",
-                    'source "$1"; auth_reader_group "$2" "$3"',
-                    "test",
-                    LIBRARY,
-                    target,
-                    kind,
-                )
-                self.assertEqual(0, result.returncode, result.stderr)
-                names.append(result.stdout.strip())
-        self.assertEqual(4, len(set(names)))
+        for kind in ("edge-backend", "camera-media", "edge-control"):
+            result = run(
+                "bash",
+                "-c",
+                'source "$1"; auth_reader_group "$2" "$3"',
+                "test",
+                LIBRARY,
+                "edge",
+                kind,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            names.append(result.stdout.strip())
+        self.assertEqual(3, len(set(names)))
 
     def test_fixture_root_never_creates_host_groups(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -106,11 +105,20 @@ class ContainerCredentialPermissionTest(unittest.TestCase):
             for kind, identity in (
                 ("edge-backend", "edge-01"),
                 ("camera-media", "camera-01"),
+                ("edge-control", "edge-01"),
             ):
                 bundle = workspace / kind
-                generated = run(GENERATE, kind, identity, bundle)
+                options = (
+                    ["--site-id", "site-01", "--sensor-id", "lidar-a"]
+                    + ["--sensor-id", "lidar-b"]
+                    if kind == "edge-backend"
+                    else []
+                )
+                generated = run(GENERATE, *options, kind, identity, bundle)
                 self.assertEqual(0, generated.returncode, generated.stderr)
-                for target in ("edge", "server"):
+                for target in (
+                    ("edge",) if kind == "edge-control" else ("edge", "server")
+                ):
                     installed = run(INSTALL, target, bundle)
                     self.assertEqual(0, installed.returncode, installed.stderr)
             for arguments in (("edge", environment), ("server",)):
@@ -121,22 +129,13 @@ class ContainerCredentialPermissionTest(unittest.TestCase):
                 (Path("/opt/ajin/secrets/edge-token"), "scrap-edge-uplink", 10001),
                 (Path("/opt/ajin/secrets/camera-token"), "scrap-camera-agent", 10001),
                 (
-                    Path(
-                        "/srv/scrap-monitoring/secrets/backend/edge-token-digests.json"
-                    ),
-                    "scrap-backend-auth",
-                    1000,
-                ),
-                (
-                    Path(
-                        "/srv/scrap-monitoring/secrets/media/camera-token-digests.json"
-                    ),
-                    "scrap-media-auth",
-                    10002,
+                    Path("/opt/ajin/secrets/calibration-api-token"),
+                    "scrap-calibration-api",
+                    10001,
                 ),
             )
             gids = {name: grp.getgrnam(name).gr_gid for _, name, _ in consumers}
-            self.assertEqual(4, len(set(gids.values())))
+            self.assertEqual(3, len(set(gids.values())))
             for directory in secret_directories:
                 self.assertEqual(0, directory.stat().st_uid)
                 self.assertEqual(0o700, directory.stat().st_mode & 0o7777)
@@ -163,6 +162,25 @@ class ContainerCredentialPermissionTest(unittest.TestCase):
                                 self.assertNotEqual(
                                     0, self.access(view, uid, [gid]).returncode
                                 )
+                    finally:
+                        view.unlink()
+
+            for path in (
+                Path("/srv/scrap-monitoring/secrets/backend/edge-v2-devices.env"),
+                Path("/srv/scrap-monitoring/secrets/media/edge-auth.env"),
+            ):
+                with self.subTest(server_file=path):
+                    self.assertEqual(0, path.stat().st_uid)
+                    self.assertEqual(0, path.stat().st_gid)
+                    self.assertEqual(0o600, path.stat().st_mode & 0o7777)
+                    view = workspace / f"server-{path.name}"
+                    os.link(path, view)
+                    try:
+                        for uid in (1000, 10002):
+                            self.assertNotEqual(
+                                0,
+                                self.access(view, uid, list(gids.values())).returncode,
+                            )
                     finally:
                         view.unlink()
 

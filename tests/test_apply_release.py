@@ -18,7 +18,12 @@ from delivery.release_applier import (
     synchronize_host_group_environment,
 )
 from tests.edge_fixtures import runtime_document
-from tests.test_release import BUILD_ASSETS, image_directory, manifest_with_components
+from tests.test_release import (
+    BUILD_ASSETS,
+    dashboard_asset_directory,
+    image_directory,
+    manifest_with_components,
+)
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -40,6 +45,8 @@ def build_assets(temporary_path: Path, version: str) -> Path:
             str(manifest_path),
             "--image-directory",
             str(images),
+            "--dashboard-asset-directory",
+            str(dashboard_asset_directory(temporary_path)),
             "--output",
             str(output),
         ],
@@ -89,9 +96,7 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
     environment_file = host_root / "etc" / "scrap-monitoring" / "edge.env"
     environment_file.parent.mkdir(parents=True)
     environment_file.write_text(
-        (REPOSITORY / "targets" / "edge" / "hardware" / ".env.example").read_text(
-            encoding="utf-8"
-        ),
+        (REPOSITORY / "targets" / "edge" / ".env.example").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     environment_file.chmod(0o640)
@@ -101,7 +106,7 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
         json.dumps(runtime_document()),
         encoding="utf-8",
     )
-    (host_root / "opt" / "ajin" / "runtime" / "v2").mkdir(parents=True)
+    (host_root / "opt" / "ajin" / "runtime" / "v2" / "control").mkdir(parents=True)
     camera = host_root / "dev" / "video0"
     camera.parent.mkdir(parents=True)
     camera.write_text("camera fixture\n", encoding="utf-8")
@@ -127,27 +132,43 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
         "camera-media",
         "example-camera",
     )
+    write_edge_credential(
+        host_root,
+        "calibration-api-token",
+        "edge-control",
+        "example-edge",
+    )
     return host_root, environment_file
 
 
 class HostGroupEnvironmentTest(unittest.TestCase):
     def test_synchronizes_host_group_identifier(self) -> None:
-        cases = [
-            ("edge", "VIDEO_GID", "video", 44),
-            ("server", "DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin", 1002),
-        ]
+        cases = {
+            "edge": (
+                ("VIDEO_GID", "video", 44),
+                ("EDGE_UPLINK_GID", "scrap-edge-uplink", 1003),
+                ("CAMERA_AGENT_GID", "scrap-camera-agent", 1004),
+                ("CALIBRATION_API_GID", "scrap-calibration-api", 1005),
+            ),
+            "server": (("DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin", 1002),),
+        }
+        gids = {name: gid for rows in cases.values() for _, name, gid in rows}
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
-            for target, variable, group_name, group_id in cases:
+            for target, rows in cases.items():
                 with self.subTest(target=target):
                     environment_file = temporary_path / f"{target}.env"
                     environment_file.write_text(
-                        f"{variable}=0\nOTHER=value\n", encoding="utf-8"
+                        "".join(f"{variable}=0\n" for variable, _, _ in rows)
+                        + "OTHER=value\n",
+                        encoding="utf-8",
                     )
                     environment_file.chmod(0o640)
-                    environment = {variable: "0"}
+                    environment = {variable: "0" for variable, _, _ in rows}
                     with patch("delivery.release_applier.grp.getgrnam") as getgrnam:
-                        getgrnam.return_value.gr_gid = group_id
+                        getgrnam.side_effect = lambda name: type(
+                            "Group", (), {"gr_gid": gids[name]}
+                        )()
                         result = synchronize_host_group_environment(
                             target,
                             environment,
@@ -155,10 +176,11 @@ class HostGroupEnvironmentTest(unittest.TestCase):
                             Path("/"),
                         )
 
-                    getgrnam.assert_called_once_with(group_name)
-                    self.assertEqual(str(group_id), result[variable])
+                    for variable, _, group_id in rows:
+                        self.assertEqual(str(group_id), result[variable])
                     self.assertEqual(
-                        f"{variable}={group_id}\nOTHER=value\n",
+                        "".join(f"{variable}={gid}\n" for variable, _, gid in rows)
+                        + "OTHER=value\n",
                         environment_file.read_text(encoding="utf-8"),
                     )
                     self.assertEqual(0o640, environment_file.stat().st_mode & 0o777)
@@ -324,10 +346,8 @@ def apply_arguments(
     return argparse.Namespace(
         version=version,
         target="edge",
-        scenario="hardware",
         package=(
-            assets
-            / f"scrap-monitoring-edge-hardware-{version}-{selected_package_mode}.tar.gz"
+            assets / f"scrap-monitoring-edge-{version}-{selected_package_mode}.tar.gz"
         ),
         checksums=assets / "SHA256SUMS",
         mode=mode,
@@ -386,7 +406,7 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("success", state["result"])
-        self.assertEqual("versions/v0.0.1-hardware", state["current"])
+        self.assertEqual("versions/v0.0.1", state["current"])
         systemctl_log = (self.temporary_path / "systemctl.log").read_text(
             encoding="utf-8"
         )
@@ -413,23 +433,6 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("failed", state["result"])
-
-    def test_rejects_environment_scenario_mismatch_without_switching(self) -> None:
-        assets = build_assets(self.temporary_path, "v0.0.1")
-        args = apply_arguments(
-            self.temporary_path,
-            assets,
-            "v0.0.1",
-            self.host_root,
-            self.environment_file,
-        )
-        args.scenario = "simulation"
-        args.package = assets / "scrap-monitoring-edge-simulation-v0.0.1-online.tar.gz"
-
-        with self.assertRaises(subprocess.CalledProcessError):
-            self.apply(args)
-
-        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
 
     def test_applies_offline_release_without_pulling_images(self) -> None:
         assets = build_assets(self.temporary_path, "v0.0.1")
@@ -473,7 +476,7 @@ class ApplyReleaseTest(unittest.TestCase):
 
         deployment = self.temporary_path / "deployment"
         self.assertEqual(
-            "v0.0.1-hardware",
+            "v0.0.1",
             (deployment / "current").resolve().name,
         )
         self.assertFalse((deployment / "previous").exists())
@@ -481,7 +484,7 @@ class ApplyReleaseTest(unittest.TestCase):
             (deployment / "state" / "edge.json").read_text(encoding="utf-8")
         )
         self.assertEqual("failed", state["result"])
-        self.assertEqual("versions/v0.0.1-hardware", state["current"])
+        self.assertEqual("versions/v0.0.1", state["current"])
 
     def test_rejects_modified_existing_version(self) -> None:
         assets = build_assets(self.temporary_path, "v0.0.1")
@@ -597,7 +600,7 @@ class ApplyReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not healthy"):
             self.apply(second_args)
 
-        self.assertEqual("v0.0.1-hardware", (deployment / "current").resolve().name)
+        self.assertEqual("v0.0.1", (deployment / "current").resolve().name)
         self.assertEqual(original_generated, generated.read_bytes())
 
     def test_certificate_snapshot_restores_all_tls_files(self) -> None:

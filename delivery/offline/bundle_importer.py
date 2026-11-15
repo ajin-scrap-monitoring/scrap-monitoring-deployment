@@ -18,7 +18,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Import a verified offline bundle.")
     parser.add_argument("--version", required=True)
     parser.add_argument("--target", choices=sorted(TARGET_PLATFORMS), required=True)
-    parser.add_argument("--scenario", choices=("hardware", "simulation"), required=True)
     parser.add_argument("--bundle", dest="package", type=Path, required=True)
     parser.add_argument("--checksums", type=Path, required=True)
     return parser.parse_args()
@@ -52,16 +51,9 @@ def load_image_archive(bundle: Path, member_name: str) -> None:
             raise RuntimeError(f"docker image load failed with code {return_code}")
 
 
-def verify_local_images(
-    manifest: dict[str, object], target: str, scenario: str
-) -> None:
+def verify_local_images(manifest: dict[str, object], target: str) -> None:
     expected_platform = TARGET_PLATFORMS[target]
-    components = {
-        component["name"]: component
-        for component in manifest["targets"][target]["components"]
-    }
-    for name in manifest["targets"][target]["scenarios"][scenario]:
-        component = components[name]
+    for component in manifest["targets"][target]["components"]:
         image = component["image"]
         result = subprocess.run(
             [
@@ -89,9 +81,9 @@ def import_bundle(args: argparse.Namespace) -> None:
     if mode != "offline":
         raise ValueError("release package is not an offline bundle")
 
-    image_archive = f"images/{args.target}-{args.scenario}-images.tar"
+    image_archive = f"images/{args.target}-images.tar"
     load_image_archive(args.package, image_archive)
-    verify_local_images(manifest, args.target, args.scenario)
+    verify_local_images(manifest, args.target)
 
 
 def main() -> None:

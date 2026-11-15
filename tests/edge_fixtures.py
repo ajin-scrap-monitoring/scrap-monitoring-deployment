@@ -19,4 +19,12 @@ def runtime_document():
         "clock_domain_file": "/proc/sys/kernel/random/boot_id",
         "backend_origin": "https://monitoring.example.invalid",
         "token_file": "/run/secrets/edge_token",
+        "driver_config_revision": "example-config-r1",
+        "control_dir": "/control",
+        "configuration_state_file": "/control/calibration-control.json",
+        "calibration_api": {
+            "host": "127.0.0.1",
+            "port": 8765,
+            "token_file": "/run/secrets/calibration_api_token",
+        },
     }

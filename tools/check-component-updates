@@ -11,7 +11,6 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 COMPONENTS = {
-    "Simulator": "scrap-monitoring-simulator",
     "Edge Platform": "ajin-edge-platform",
     "Backend": "scrap-monitoring-backend",
     "Camera Media Service": "ajin-camera-media-service",
@@ -19,22 +18,28 @@ COMPONENTS = {
 }
 MAX_RESPONSE_BYTES = 1024 * 1024
 RELEASE_LABELS = {
-    "scrap-monitoring-simulator": "Simulator Repository",
-    "ajin-edge-platform": "Edge Platform",
-    "scrap-monitoring-backend": "Backend",
-    "ajin-camera-media-service": "Camera Media Service",
-    "scrap-monitoring-dashboard": "Dashboard Nginx",
+    "ajin-edge-platform": "Edge Platform Release",
+    "scrap-monitoring-backend": "Backend Release",
+    "ajin-camera-media-service": "Camera Media Service Release",
+    "scrap-monitoring-dashboard": "Dashboard Release",
 }
+
+
+def baseline_section(document: str) -> str:
+    """Return the Component state section; the whole text when it has no such heading."""
+    sections = re.findall(
+        r"^## Component 연동 상태$(.*?)(?=^## |\Z)", document, re.MULTILINE | re.DOTALL
+    )
+    return "\n".join(sections) if sections else document
 
 
 def release_versions(document: str) -> dict[str, str | None]:
     result = {}
+    document = baseline_section(document)
     for repository, label in RELEASE_LABELS.items():
         rows = re.findall(
             rf"^\| {re.escape(label)} \| ([^\n]+)$", document, re.MULTILINE
         )
-        # Backend also appears in the source table; only the contract row has no link prefix.
-        rows = [row for row in rows if not row.startswith("[")]
         if len(rows) != 1:
             raise ValueError("component Release baseline is missing or ambiguous")
         match = re.match(r"`(v[0-9]+\.[0-9]+\.[0-9]+)`", rows[0])
@@ -44,6 +49,7 @@ def release_versions(document: str) -> dict[str, str | None]:
 
 def source_revisions(document: str) -> dict[str, str]:
     result = {}
+    document = baseline_section(document)
     for component, repository in COMPONENTS.items():
         matches = re.findall(
             rf"^\| {re.escape(component)} \| \[([0-9a-f]{{40}})\]"

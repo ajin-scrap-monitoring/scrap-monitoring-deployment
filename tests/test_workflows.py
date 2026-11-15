@@ -103,5 +103,73 @@ class WorkflowPolicyTest(unittest.TestCase):
                 self.assertIn("tests/validate-container", commands)
 
 
+class ComponentImagesWorkflowTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = load_workflow("component-images.yml")
+        self.jobs = self.workflow["jobs"]
+
+    def test_runs_only_by_manual_dispatch(self) -> None:
+        self.assertEqual(["workflow_dispatch"], list(self.workflow["on"]))
+        self.assertEqual({"contents": "read"}, self.workflow["permissions"])
+
+    def test_package_write_permission_is_isolated_to_build_job(self) -> None:
+        for name, job in self.jobs.items():
+            permissions = job.get("permissions", {})
+            with self.subTest(job=name):
+                self.assertNotIn(
+                    "contents", [k for k, v in permissions.items() if v == "write"]
+                )
+                self.assertNotIn("pull-requests", permissions)
+                self.assertNotIn("id-token", permissions)
+                if name == "build":
+                    self.assertEqual(
+                        {"contents": "read", "packages": "write"}, permissions
+                    )
+                else:
+                    self.assertNotEqual("write", permissions.get("packages"))
+        self.assertEqual("read", self.jobs["resolve"]["permissions"]["packages"])
+
+    def test_workflow_has_no_secrets_or_automation_triggers(self) -> None:
+        text = WORKFLOWS.joinpath("component-images.yml").read_text(encoding="utf-8")
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("schedule", self.workflow["on"])
+        self.assertNotIn("create-github-app-token", text)
+
+    def test_build_job_runs_no_component_code(self) -> None:
+        steps = self.jobs["build"]["steps"]
+        commands = "\n".join(step.get("run", "") for step in steps)
+        self.assertNotRegex(commands, r"source/[A-Za-z0-9._/-]+\s")
+        for token in ("make ", "npm ", "pip ", "bash source", "./source"):
+            self.assertNotIn(token, commands)
+        references = [step.get("uses", "") for step in steps]
+        self.assertTrue(
+            all(
+                reference.split("@")[0]
+                in {
+                    "actions/checkout",
+                    "actions/upload-artifact",
+                    "docker/setup-buildx-action",
+                    "docker/login-action",
+                    "docker/build-push-action",
+                }
+                for reference in references
+                if reference
+            )
+        )
+
+    def test_build_uses_native_runner_and_no_latest_tag(self) -> None:
+        build = self.jobs["build"]
+        self.assertEqual("${{ matrix.runner }}", build["runs-on"])
+        text = WORKFLOWS.joinpath("component-images.yml").read_text(encoding="utf-8")
+        self.assertNotIn("qemu", text.lower())
+        self.assertNotIn(":latest", text)
+
+    def test_expressions_are_not_interpolated_into_scripts(self) -> None:
+        for name, job in self.jobs.items():
+            for step in job["steps"]:
+                with self.subTest(job=name, step=step.get("name")):
+                    self.assertNotIn("${{", step.get("run", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

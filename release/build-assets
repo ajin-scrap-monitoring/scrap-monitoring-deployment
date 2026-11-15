@@ -10,14 +10,16 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from dashboard_assets import dashboard_version, verified_nginx_files
 from jsonschema import Draft202012Validator
-from release_manifest import SCENARIOS, TARGETS, load_manifest, scenario_components
+from release_manifest import TARGETS, load_manifest, target_components
 
 COMMON_PAYLOAD_FILES = (
     "README.md",
     "requirements-tooling.txt",
     "delivery/README.md",
     "delivery/apply-release",
+    "delivery/auth-registry.sh",
     "delivery/auth-secret-permissions.sh",
     "delivery/generate-auth-secret",
     "delivery/install-auth-secret",
@@ -81,6 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--image-directory", required=True, type=Path)
+    parser.add_argument("--dashboard-asset-directory", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -122,7 +125,6 @@ def tree_files(
 def payload_files(
     repository: Path,
     target: str,
-    scenario: str,
     mode: str,
     manifest: dict[str, object],
 ) -> list[tuple[Path, Path]]:
@@ -135,7 +137,7 @@ def payload_files(
         ]
     }
     relative_files.add(Path("notices/README.md"))
-    for component in scenario_components(manifest, target, scenario):
+    for component in target_components(manifest, target):
         relative_files.update(Path(path) for path in component["notices"])
 
     files = [
@@ -145,11 +147,9 @@ def payload_files(
     files.extend(
         tree_files(
             repository,
-            Path("targets") / target / scenario,
-            destination_root=Path("targets") / target,
+            Path("targets") / target,
         )
     )
-    files.extend(tree_files(repository, Path("targets") / target / "systemd"))
     if target == "server":
         files.extend(tree_files(repository, Path("pki")))
 
@@ -192,25 +192,24 @@ def build_package(
     output: Path,
     repository: Path,
     target: str,
-    scenario: str,
     mode: str,
     manifest: dict[str, object],
     package_schema: dict[str, object],
     manifest_bytes: bytes,
     image_archive: Path | None,
+    extra_files: list[tuple[str, bytes]],
 ) -> None:
     manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
     package = {
         "schemaVersion": 2,
         "version": manifest["version"],
         "target": target,
-        "scenario": scenario,
         "mode": mode,
         "platform": manifest["targets"][target]["platform"],
         "manifestSha256": manifest_digest,
     }
     if image_archive is not None:
-        package["imageArchive"] = f"images/{target}-{scenario}-images.tar"
+        package["imageArchive"] = f"images/{target}-images.tar"
     Draft202012Validator(package_schema).validate(package)
     package_bytes = (
         json.dumps(package, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -227,15 +226,25 @@ def build_package(
     ):
         add_bytes(archive, package_bytes, "release-package.json")
         add_bytes(archive, manifest_bytes, "release-manifest.json")
-        for source, destination in payload_files(
-            repository, target, scenario, mode, manifest
-        ):
-            add_file(archive, source, destination)
+        files = [
+            (destination.as_posix(), source)
+            for source, destination in payload_files(repository, target, mode, manifest)
+        ]
+        names = {name for name, _ in files}
+        if any(name in names for name, _ in extra_files):
+            raise ValueError("fetched payload overlaps the repository payload")
+        entries = [(name, source) for name, source in files]
+        entries += [(name, content) for name, content in extra_files]
+        for name, source in sorted(entries, key=lambda item: item[0]):
+            if isinstance(source, bytes):
+                add_bytes(archive, source, name)
+            else:
+                add_file(archive, source, Path(name))
         if image_archive is not None:
             add_file(
                 archive,
                 image_archive,
-                Path("images") / f"{target}-{scenario}-images.tar",
+                Path("images") / f"{target}-images.tar",
             )
 
 
@@ -259,29 +268,28 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
         (repository / "release" / "package.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(package_schema)
+    dashboard_files = verified_nginx_files(
+        args.dashboard_asset_directory.resolve(), dashboard_version(manifest)
+    )
     image_directory = args.image_directory.resolve()
     if image_directory.is_symlink() or not image_directory.is_dir():
         raise ValueError(
             f"image archive directory is missing or symbolic: {image_directory}"
         )
-    image_archives: dict[tuple[str, str], Path] = {}
+    image_archives: dict[str, Path] = {}
     for target in TARGETS:
-        for scenario in SCENARIOS:
-            image_archive = image_directory / f"{target}-{scenario}-images.tar"
-            if image_archive.is_symlink() or not image_archive.is_file():
-                raise FileNotFoundError(
-                    f"{target} {scenario} image archive not found: {image_archive}"
-                )
-            image_archives[target, scenario] = image_archive.resolve()
+        image_archive = image_directory / f"{target}-images.tar"
+        if image_archive.is_symlink() or not image_archive.is_file():
+            raise FileNotFoundError(
+                f"{target} image archive not found: {image_archive}"
+            )
+        image_archives[target] = image_archive.resolve()
 
     output_directory = args.output.resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
     names = {
-        (target, scenario, mode): (
-            f"scrap-monitoring-{target}-{scenario}-{args.version}-{mode}.tar.gz"
-        )
+        (target, mode): f"scrap-monitoring-{target}-{args.version}-{mode}.tar.gz"
         for target in TARGETS
-        for scenario in SCENARIOS
         for mode in ("online", "offline")
     }
     reserved = [output_directory / name for name in names.values()]
@@ -298,19 +306,18 @@ def build_assets(args: argparse.Namespace) -> list[Path]:
     ) as temporary:
         temporary_directory = Path(temporary)
         for target in TARGETS:
-            for scenario in SCENARIOS:
-                for mode in ("online", "offline"):
-                    build_package(
-                        temporary_directory / names[target, scenario, mode],
-                        repository,
-                        target,
-                        scenario,
-                        mode,
-                        manifest,
-                        package_schema,
-                        manifest_bytes,
-                        image_archives[target, scenario] if mode == "offline" else None,
-                    )
+            for mode in ("online", "offline"):
+                build_package(
+                    temporary_directory / names[target, mode],
+                    repository,
+                    target,
+                    mode,
+                    manifest,
+                    package_schema,
+                    manifest_bytes,
+                    image_archives[target] if mode == "offline" else None,
+                    dashboard_files if target == "server" else [],
+                )
         assets = [temporary_directory / name for name in names.values()]
         checksum_path = temporary_directory / "SHA256SUMS"
         checksum_path.write_text(

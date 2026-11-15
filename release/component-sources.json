@@ -1,0 +1,115 @@
+{
+  "organization": "ajin-scrap-monitoring",
+  "buildNamespace": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment",
+  "components": [
+    {
+      "name": "ajin-lidar-driver",
+      "repository": "ajin-edge-platform",
+      "target": "edge",
+      "platform": "linux/arm64",
+      "runner": "ubuntu-24.04-arm",
+      "dockerfile": "services/lidar-driver/Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "release-manifest.json",
+        "key": "lidar-driver"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "ajin-lidar-processing",
+      "repository": "ajin-edge-platform",
+      "target": "edge",
+      "platform": "linux/arm64",
+      "runner": "ubuntu-24.04-arm",
+      "dockerfile": "services/lidar-processing/Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "release-manifest.json",
+        "key": "lidar-processing"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "ajin-measurement-uplink",
+      "repository": "ajin-edge-platform",
+      "target": "edge",
+      "platform": "linux/arm64",
+      "runner": "ubuntu-24.04-arm",
+      "dockerfile": "services/measurement-uplink/Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "release-manifest.json",
+        "key": "measurement-uplink"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "ajin-edge-orchestrator",
+      "repository": "ajin-edge-platform",
+      "target": "edge",
+      "platform": "linux/arm64",
+      "runner": "ubuntu-24.04-arm",
+      "dockerfile": "services/edge-orchestrator/Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "release-manifest.json",
+        "key": "edge-orchestrator"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "ajin-camera-edge",
+      "repository": "ajin-edge-platform",
+      "target": "edge",
+      "platform": "linux/arm64",
+      "runner": "ubuntu-24.04-arm",
+      "dockerfile": "services/camera-edge/Dockerfile",
+      "context": "services/camera-edge",
+      "officialImage": {
+        "asset": "release-manifest.json",
+        "key": "camera-edge"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "scrap-monitoring-backend",
+      "repository": "scrap-monitoring-backend",
+      "target": "server",
+      "platform": "linux/amd64",
+      "runner": "ubuntu-latest",
+      "dockerfile": "Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "image-reference.txt"
+      },
+      "minimumRelease": "v0.2.0"
+    },
+    {
+      "name": "ajin-camera-media-service",
+      "repository": "ajin-camera-media-service",
+      "target": "server",
+      "platform": "linux/amd64",
+      "runner": "ubuntu-latest",
+      "dockerfile": "Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "image-reference.txt"
+      },
+      "minimumRelease": "v0.1.0"
+    },
+    {
+      "name": "scrap-monitoring-dashboard",
+      "repository": "scrap-monitoring-dashboard",
+      "target": "server",
+      "platform": "linux/amd64",
+      "runner": "ubuntu-latest",
+      "dockerfile": "Dockerfile",
+      "context": ".",
+      "officialImage": {
+        "asset": "image-reference.txt"
+      },
+      "minimumRelease": "v0.6.0"
+    }
+  ]
+}

@@ -41,7 +41,6 @@
         "name",
         "sourceRepository",
         "sourceRevision",
-        "version",
         "image",
         "packageVisibility",
         "pullAuthentication",
@@ -54,7 +53,7 @@
         },
         "sourceRepository": {
           "type": "string",
-          "pattern": "^https://github\\.com/ajin-scrap-monitoring/[a-z0-9][a-z0-9._-]*$"
+          "pattern": "^https://github\\.com/(ajin-scrap-monitoring|docker-library|smallstep)/[a-z0-9][a-z0-9._-]*$"
         },
         "sourceRevision": {
           "type": "string",
@@ -66,7 +65,7 @@
         },
         "image": {
           "type": "string",
-          "pattern": "^ghcr\\.io/ajin-scrap-monitoring/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+          "pattern": "^(ghcr\\.io/ajin-scrap-monitoring|docker\\.io/library|docker\\.io/smallstep)/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
         },
         "packageVisibility": {
           "enum": [
@@ -92,6 +91,12 @@
             "pattern": "^notices/[A-Za-z0-9][A-Za-z0-9._/-]*\\.md$"
           },
           "uniqueItems": true
+        },
+        "imageProvider": {
+          "enum": [
+            "component-release",
+            "deployment-build"
+          ]
         }
       },
       "allOf": [
@@ -125,6 +130,35 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "imageProvider": {
+                "const": "deployment-build"
+              }
+            },
+            "required": [
+              "imageProvider"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "version"
+              ]
+            },
+            "properties": {
+              "image": {
+                "pattern": "^ghcr\\.io/ajin-scrap-monitoring/scrap-monitoring-deployment/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "version"
+            ]
+          }
         }
       ]
     },
@@ -133,8 +167,7 @@
       "additionalProperties": false,
       "required": [
         "platform",
-        "components",
-        "scenarios"
+        "components"
       ],
       "properties": {
         "platform": {
@@ -147,9 +180,6 @@
           "items": {
             "$ref": "#/$defs/component"
           }
-        },
-        "scenarios": {
-          "$ref": "#/$defs/scenarios"
         }
       }
     },
@@ -158,8 +188,7 @@
       "additionalProperties": false,
       "required": [
         "platform",
-        "components",
-        "scenarios"
+        "components"
       ],
       "properties": {
         "platform": {
@@ -172,35 +201,7 @@
           "items": {
             "$ref": "#/$defs/component"
           }
-        },
-        "scenarios": {
-          "$ref": "#/$defs/scenarios"
         }
-      }
-    },
-    "scenarios": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "hardware",
-        "simulation"
-      ],
-      "properties": {
-        "hardware": {
-          "$ref": "#/$defs/componentNames"
-        },
-        "simulation": {
-          "$ref": "#/$defs/componentNames"
-        }
-      }
-    },
-    "componentNames": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "pattern": "^[a-z0-9][a-z0-9-]*$"
       }
     }
   }

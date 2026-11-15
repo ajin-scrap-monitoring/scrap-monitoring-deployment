@@ -18,10 +18,14 @@ class ServerPreflightTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.environment = self.root / "server.env"
         self.environment.write_text(
-            (REPOSITORY / "targets/server/hardware/.env.example").read_text()
+            (REPOSITORY / "targets/server/.env.example").read_text()
         )
-        for name in ("backend", "media"):
-            (self.root / "srv/scrap-monitoring/data" / name).mkdir(parents=True)
+        for path in (
+            "srv/scrap-monitoring/data/postgresql-init",
+            "srv/scrap-monitoring/data/postgresql",
+            "srv/ajin-camera-storage/sd/camera-media",
+        ):
+            (self.root / path).mkdir(parents=True)
         self.commands = []
 
     def checked(self, command, **kwargs):
@@ -33,7 +37,7 @@ class ServerPreflightTest(unittest.TestCase):
     def validate(self):
         with patch("delivery.release_applier.run_checked", side_effect=self.checked):
             return validate_target_inputs(
-                REPOSITORY, "server", "hardware", self.environment, self.root
+                REPOSITORY, "server", self.environment, self.root
             )
 
     def install_dashboard(self):
@@ -71,7 +75,7 @@ class ServerPreflightTest(unittest.TestCase):
         path = self.install_dashboard()
         before = path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns
         environment, generated = self.validate()
-        self.assertEqual("hardware", environment["DEPLOYMENT_SCENARIO"])
+        self.assertIn("SERVER_FQDN", environment)
         self.assertIsNone(generated)
         self.assertEqual(
             before, (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)

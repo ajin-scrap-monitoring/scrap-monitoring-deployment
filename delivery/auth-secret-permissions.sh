@@ -36,8 +36,7 @@ auth_reader_group() {
   case "$1/$2" in
     edge/edge-backend) printf '%s\n' scrap-edge-uplink ;;
     edge/camera-media) printf '%s\n' scrap-camera-agent ;;
-    server/edge-backend) printf '%s\n' scrap-backend-auth ;;
-    server/camera-media) printf '%s\n' scrap-media-auth ;;
+    edge/edge-control) printf '%s\n' scrap-calibration-api ;;
     *) return 1 ;;
   esac
 }

@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from dashboard_assets import dashboard_version, fetch_dashboard_assets
+from release_manifest import load_manifest
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Fetch the Dashboard Release nginx asset pinned by the manifest."
+    )
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    repository = Path(__file__).resolve().parents[1]
+    manifest = load_manifest(
+        repository, args.manifest.resolve(), args.version, require_components=True
+    )
+    fetch_dashboard_assets(dashboard_version(manifest), args.output)
+    print(args.output)
+
+
+if __name__ == "__main__":
+    main()

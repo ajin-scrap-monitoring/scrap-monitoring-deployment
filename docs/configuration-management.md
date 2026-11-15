@@ -26,14 +26,13 @@ pki-operations.md를 따른다.
 Release manifest는 통합 버전과 대상별 OCI (Open Container Initiative) image digest의 정본이다.
 배포 적용기는 manifest를 검증한 뒤 대상별 release.env를 생성한다.
 
-대상별 Release 설정은 3종의 값을 포함한다.
+대상별 Release 설정은 2종의 값을 포함한다.
 
 - 통합 version을 가진 `DEPLOYMENT_REVISION`
-- 선택한 배포 시나리오를 가진 `DEPLOYMENT_SCENARIO`
 - Component 이름의 하이픈을 밑줄로 바꾸고 대문자로 변환한 `<COMPONENT_NAME>_IMAGE`
 
 release.env는 Release asset에서 생성한 파일이며 사람이 수정하지 않는다. Image 값은
-`ghcr.io/organization/image@sha256:digest` 형식의 실제 이름과 64자리 digest만 허용한다.
+`ghcr.io/organization/image@sha256:digest` 형식의 실제 이름과 64자리 digest만 허용하며 third-party image는 `docker.io/library` 또는 `docker.io/smallstep` 경로의 digest 고정 참조를 허용한다.
 
 ## 장비 환경설정
 
@@ -41,10 +40,8 @@ release.env는 Release asset에서 생성한 파일이며 사람이 수정하지
 
 | 대상 | 공개 schema | 실제 파일 |
 | --- | --- | --- |
-| Edge hardware | targets/edge/hardware/.env.example | /etc/scrap-monitoring/edge.env |
-| Edge simulation | targets/edge/simulation/.env.example | /etc/scrap-monitoring/edge.env |
-| Server hardware | targets/server/hardware/.env.example | /etc/scrap-monitoring/server.env |
-| Server simulation | targets/server/simulation/.env.example | /etc/scrap-monitoring/server.env |
+| Edge | targets/edge/.env.example | /etc/scrap-monitoring/edge.env |
+| Server | targets/server/.env.example | /etc/scrap-monitoring/server.env |
 
 .env.example은 변수 이름, 공개 가능한 형식과 schema version을 관리한다. 실제 파일은 현장 주소,
 Fully Qualified Domain Name (FQDN), 장치 경로, host group ID와 독립적으로 확인한 Root CA
@@ -54,22 +51,21 @@ fingerprint를 보관하며 Git과 Release asset에 포함하지 않는다.
 file 0640을 사용한다. `delivery/install-container-runtime --target <edge|server>`는 `scrap-admin`
 시스템 그룹을 생성한다. 배포 적용기는 값을 로그에 출력하거나 Release 작업 경로로 복사하지 않는다.
 
-`delivery/install-environment --target <edge|server> --scenario <hardware|simulation>`은 환경 파일이
-없을 때 해당 공개 template을 설치한다. 기본 시나리오는 `hardware`다. 기존 파일은 byte를
-변경하지 않고 권한과 schema만 검증한다. 시나리오, schema 또는 권한이 맞지 않으면 자동으로
+`delivery/install-environment --target <edge|server>`은 환경 파일이
+없을 때 해당 공개 template을 설치한다. 기존 파일은 byte를
+변경하지 않고 권한과 schema만 검증한다. Schema 또는 권한이 맞지 않으면 자동으로
 수정하지 않고 중단한다. 환경 파일과 설정 directory의 symbolic link는 허용하지 않는다.
 환경 lock은 단일 link와 mode `0600`인 regular file만 사용하며 기존 내용을 truncate하지 않는다.
 
-`VIDEO_GID`와 `DASHBOARD_SCRAP_ADMIN_GID`는 host group ID 파생값이다. `delivery/apply-release`는
-각각 `video`와 `scrap-admin` group ID를 조회하여 실제 환경 파일에 원자적으로 기록한다. 운영자는
+`VIDEO_GID`, `EDGE_UPLINK_GID`, `CAMERA_AGENT_GID`와 `DASHBOARD_SCRAP_ADMIN_GID`는 host group ID
+파생값이다. `delivery/apply-release`는 각각 `video`, `scrap-edge-uplink`, `scrap-camera-agent`와
+`scrap-admin` group ID를 조회하여 실제 환경 파일에 원자적으로 기록한다. 운영자는
 이 값을 직접 입력하지 않는다.
 
 ## Component 설정과 파생값
 
-hardware Edge의 v2 runtime 설정은 /opt/ajin/config/edge-v2.runtime.json에서 관리한다. simulation Edge의
-v2 runtime 설정은 /opt/ajin/config/edge-simulation-v2.runtime.json에서 관리한다. 두 Edge 환경 schema는
-version `4`이며 v1 환경 파일과 저장소를 자동 변환하지 않는다. Simulator Server의 scene과 sensor 설정, Visualizer
-camera profile과 Camera Edge Bridge의 frame 처리 설정은 Simulator component image가 소유한다. 승인된
+Edge의 v2 runtime 설정은 /opt/ajin/config/edge-v2.runtime.json에서 관리한다. Edge 환경 schema는
+version `5`이며 v1 환경 파일과 저장소를 자동 변환하지 않는다. 승인된
 보정값, 센서 매핑과 service version manifest는 Component 설정의 책임이다.
 장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
 CAMERA_ID와 CONFIG_REVISION은 장비별 값이다. 배포 적용기는 `configuration`의 `site_id`, `edge_id`,
@@ -91,7 +87,7 @@ Generated environment 파일은 Release 설정이나 장비 환경설정의 정�
 
 ### Edge v2 runtime 설정
 
-Runtime JSON의 필드는 9개다.
+Runtime JSON의 필드는 13개다.
 
 | 필드 | 입력 계약 |
 | --- | --- |
@@ -104,10 +100,48 @@ Runtime JSON의 필드는 9개다.
 | `clock_domain_file` | Clock domain을 읽을 절대 경로 |
 | `backend_origin` | 환경 파일의 `BACKEND_ORIGIN`과 일치하는 HTTPS origin |
 | `token_file` | Container가 읽을 Edge token 파일의 절대 경로 |
+| `driver_config_revision` | 환경 파일의 `CONFIG_REVISION`과 일치하는 Driver 고정 revision |
+| `control_dir` | 보정 제어 상태 directory, Outbox와 상태 directory와 겹치지 않는 절대 경로 |
+| `configuration_state_file` | `control_dir` 아래의 `.json` 제어 상태 파일 |
+| `calibration_api` | 제어 API의 `host`, `port`, `token_file` |
 
 JSON 내부 경로는 Component 실행 환경 기준이며 host의 `RUNTIME_DIR`와 동일하다고 가정하지 않는다.
-실제 mount 연결은 Compose의 책임이다. 기본 host runtime 경로는 hardware의 `/opt/ajin/runtime/v2`와
-simulation의 `/opt/ajin/runtime/simulation-v2`로 분리한다.
+실제 mount 연결은 `targets/edge/compose.yaml`의 책임이며 Compose가 고정하는 container 경로는
+다음과 같다. `delivery/validate-edge-configuration`은 runtime JSON이 이 경로를 사용하는지 검사한다.
+기본 host runtime 경로는 `/opt/ajin/runtime/v2`이며 `sockets/{a,b,observations,delivery}`,
+`status`, `outbox`, `clock`, `control` directory를 사용한다. `CONTROL_DIR`은 `control` directory를 가리킨다.
+
+| 필드 | Container 경로 |
+| --- | --- |
+| `drivers` | `unix:/sockets/a/scan.sock`, `unix:/sockets/b/scan.sock` |
+| `delivery_endpoint` | `unix:/sockets/delivery/measurement.sock` |
+| `observation_endpoint` | `unix:/sockets/observations/observations.sock` |
+| `storage_dir` | `/data/outbox` |
+| `status_dir` | `/status` |
+| `token_file` | `/run/secrets/edge_token` |
+| `control_dir` | `/control` |
+| `configuration_state_file` | `/control/calibration-control.json` |
+| `calibration_api.token_file` | `/run/secrets/calibration_api_token` |
+
+Edge 환경 파일의 `LIDAR_A_SENSOR_ID`와 `LIDAR_B_SENSOR_ID`는 `configuration.sensors`의 순서와
+일치해야 하며 Driver의 `--sensor-id`에 사용한다. `CALIBRATION_API_HOST`는 loopback 또는 Tailscale 주소여야 하며
+`calibration_api.host`, `CALIBRATION_API_PORT`와 `calibration_api.port`가 각각 일치해야 한다.
+Wildcard와 공인 주소는 거부한다. 제어 directory는 보정 API Container에만 쓰기 권한으로, 데이터 서비스 3개에는
+읽기 전용으로 mount하고 Camera Edge에는 mount하지 않는다. 제어 API Container에는 제어 token만 연결하고
+Backend token은 연결하지 않는다. 제어 API는 Edge Platform의 `docs/CALIBRATION_API.md`와
+`docs/CONFIGURATION_API.md`가 정의한다.
+
+LiDAR가 사용하는 각도 구간은 Edge runtime 기준 등록의 `configuration.sensors[].angle_intervals_mdeg`가 소유하며
+Edge Configuration API로 변경할 수 없다. 값은 [docs/edge-geometry.md](edge-geometry.md)가 정본이다.
+기준 등록을 변경하면 calibration-api가 기존 제어 상태를 거부하므로 다음 순서로 적용한다.
+
+1. 기준 등록에 새 `config_revision`, `message_id`, `generated_at` 지정
+2. runtime을 읽는 service 4개 정지
+3. 제어 directory 전체(상태 파일과 초기화 marker)를 백업 위치로 이동
+4. service 재기동과 Backend의 기준 등록 ACK 확인
+5. `PUT /api/control/v1/configuration`으로 calibration과 judgment 재등록
+6. job의 APPLIED 상태 확인
+7. Backend의 `EDGE_V2_SIMULATION_HEIGHT_REFERENCES` `config_revision`을 최종 revision으로 갱신
 
 `delivery/validate-edge-configuration <environment-file>`은 환경 schema, runtime의 필수 필드와
 식별자, sensor와 driver 매핑, socket 및 저장 경로의 구조와 HTTPS origin을 읽기 전용으로 검사한다.
@@ -182,22 +216,42 @@ service별 secret으로 연결하고 각 service는 필요한 secret만 `/run/se
 일반 [Docker Compose의 file 기반 secret](https://docs.docker.com/compose/how-tos/use-secrets/)은
 host 파일 bind mount이므로 host 저장소의 소유권과 권한이 비밀정보 보호의 기준이다.
 
-애플리케이션 인증 token은 2종이다.
+애플리케이션 인증 token은 3종이다.
 
-| 인증 경계 | Client 파일 | Client 읽기 그룹 | Server 파일 | Server 읽기 그룹 | 식별 단위 |
-| --- | --- | --- | --- | --- | --- |
-| Edge Platform에서 Backend | `/opt/ajin/secrets/edge-token` | `scrap-edge-uplink` | `/srv/scrap-monitoring/secrets/backend/edge-token-digests.json` | `scrap-backend-auth` | Edge ID |
-| Camera Edge에서 Camera Media Service | `/opt/ajin/secrets/camera-token` | `scrap-camera-agent` | `/srv/scrap-monitoring/secrets/media/camera-token-digests.json` | `scrap-media-auth` | Camera ID |
+| 인증 경계 | Edge 파일 | Edge 읽기 그룹 | Server 파일과 환경변수 | 식별 단위 |
+| --- | --- | --- | --- | --- |
+| Edge Platform에서 Backend | `/opt/ajin/secrets/edge-token` | `scrap-edge-uplink` | `/srv/scrap-monitoring/secrets/backend/edge-v2-devices.env`의 `EDGE_V2_DEVICES` | site, Edge ID와 sensor ID 2개 |
+| Camera Edge에서 Camera Media Service | `/opt/ajin/secrets/camera-token` | `scrap-camera-agent` | `/srv/scrap-monitoring/secrets/media/edge-auth.env`의 `EDGE_AUTH_SECRET` | Camera ID |
+| Backend에서 Edge 제어 API | `/opt/ajin/secrets/calibration-api-token` | `scrap-calibration-api` | 없음(Edge 전용) | Edge ID |
 
-애플리케이션이 읽는 Client token과 Server digest registry는 root 소유, 해당 service 전용 읽기
-그룹과 file mode `0640`을 사용한다. 배포 도구는 root 권한으로 파일을 설치하거나 교체하고,
-non-root 애플리케이션은 필요한 파일만 read-only로 mount하여 읽는다. Secret directory 전체와
+Edge의 Client token은 root 소유, 해당 service 전용 읽기 그룹과 file mode `0640`을 사용한다.
+Server 파일은 root 소유, 그룹 없음과 file mode `0600`이며 상위 directory는 `0700`이다. 두 Component는
+이 값을 `_FILE` 변형이 아닌 환경변수로 읽으므로 Compose의 `env_file`이 root의 파일을 읽어 주입하며
+Container에는 파일을 mount하지 않는다. 배포 도구는 root 권한으로 파일을 설치하거나 교체하고,
+non-root 애플리케이션은 필요한 Edge 파일만 read-only로 mount하여 읽는다. Secret directory 전체와
 다른 service의 인증 파일은 mount하지 않는다.
 
-배포 도구는 전용 그룹을 생성하거나 조회한다. Compose는 host 파일의 group ID를 해당 Container의
+Server 파일은 한 줄의 `NAME='<compact JSON>'` 형식이다. Backend 파일의 JSON은 `site_id`,
+`edge_id`, `sensor_ids`(서로 다른 2개)와 `token`(64자리 hex)을 가진 객체의 배열이며 token은
+서로 달라야 하고 같은 Edge의 항목은 같은 site와 sensor를 가지며 최대 2개다. Media 파일의 JSON은
+Camera ID에서 64자리 hex token으로의 객체다. `delivery/auth-registry.sh`가 이 형식의
+검증과 기록을 제공한다.
+
+배포 도구는 Edge 전용 그룹을 생성하거나 조회한다. Compose는 host 파일의 group ID를 해당 Container의
 supplementary group에 연결한다. 운영자는 group ID를 직접 입력하지 않는다. 전달용 credential
 bundle, metadata와 lock 파일은 애플리케이션에 연결하지 않고 root-only 접근을 유지한다.
 인증서 개인키의 권한은 [docs/pki-operations.md](pki-operations.md)를 따른다.
+
+Server가 PostgreSQL과 Backend, Media에 사용하는 나머지 secret 파일은 운영자가 제공하며
+`delivery/validate-auth-secrets`가 검사하지 않는다. 모두 `/srv/scrap-monitoring/secrets` 아래의 root
+`0600` 파일이다.
+
+| 파일 | 내용 |
+| --- | --- |
+| `database/postgres.env` | PostgreSQL 관리자 비밀번호와 role별 SCRAM verifier 3개 |
+| `database/migration.env` | `scrap_owner` 연결 `DATABASE_URL` |
+| `backend/backend.env` | `scrap_app` 연결 `DATABASE_URL`, 관리자 계정 초기 비밀번호와 Backend 설정 |
+| `media/media.env` | Camera Media Service 설정 |
 
 Secret directory는 root 소유와 mode `0700`, 설치한 metadata와 lock 파일은 root 소유와 mode
 `0600`을 사용한다. 설치 도구는 credential 경로의 symbolic link와 파일의 hard link를 거부한다.
@@ -206,38 +260,43 @@ Edge rotation에서 token 전환 후 metadata 전환만 실패하면 같은 bund
 재시도가 metadata를 복구하며 token inode를 유지한다. 일반 재설치는 metadata 불일치를 거부한다.
 
 배포 도구는 credential Bootstrap에서 각 인증 관계마다 운영체제의 Cryptographically Secure
-Pseudo-Random Number Generator (CSPRNG)로 독립적인 256-bit opaque token을 생성한다. Client
-파일은 요청의 Bearer 값으로 사용할 원문 token 하나를 가진다. Server JSON 파일은 식별자별로
-SHA-256 digest를 1개 또는 rotation 중 2개 가지며 원문 token을 저장하지 않는다. Server
-component는 수신한 Bearer token의 digest를 계산하고 constant-time 비교를 수행한다. 배포 도구는
-같은 token을 두 인증 경계에 재사용하지 않는다.
+Pseudo-Random Number Generator (CSPRNG)로 독립적인 256-bit opaque token을 생성한다. Edge 파일과
+Server의 component 파일은 같은 원문 token을 가진다. 배포 도구는 같은 token을 두 인증 경계에
+재사용하지 않는다.
 
-Credential Bootstrap은 장비 환경설정에서 Edge ID와 Camera ID를 확정한 뒤 최초 Compose 시작
-전에 수행한다. `delivery/generate-auth-secret`이 전달용 credential bundle을 만들고
-`delivery/install-auth-secret`이 Server digest와 해당 Edge 원문 token을 설치한다. 설치 후
-`delivery/validate-auth-secrets`가 파일 형식, 식별자, digest와 접근 권한을 검사한다.
-단일 파일 bind mount는 원자적 파일 교체 후에도 기존 inode를 참조할 수 있으므로 파일 교체만으로
-실행 중인 애플리케이션에 새 token이나 digest가 반영된 것으로 간주하지 않는다.
+Credential Bootstrap은 장비 환경설정에서 site, Edge ID, sensor ID와 Camera ID를 확정한 뒤 최초
+Compose 시작 전에 수행한다. `delivery/generate-auth-secret`이 edge-backend bundle에
+`--site-id`와 `--sensor-id` 2개를 받아 전달용 credential bundle을 만들고
+`delivery/install-auth-secret`이 Server의 component 파일과 해당 Edge의 원문 token을 설치한다. 설치 후
+`delivery/validate-auth-secrets`가 파일 형식, 식별자와 접근 권한을 검사한다.
+단일 파일 bind mount는 원자적 파일 교체 후에도 기존 inode를 참조할 수 있고 환경변수는 Container 생성
+시점에 고정되므로 파일 교체만으로 실행 중인 애플리케이션에 새 token이 반영된 것으로 간주하지 않는다.
 
-Token rotation은 명시적으로 다음 순서로 수행한다.
+Backend token rotation은 명시적으로 다음 순서로 수행한다.
 
 1. `delivery/generate-auth-secret`으로 같은 식별자의 새 bundle을 생성한다.
-2. `delivery/install-auth-secret --rotate server`로 Server에 새 digest를 추가한다.
-3. `delivery/install-auth-secret --rotate edge`로 해당 Edge의 원문 token을 교체한다.
-4. HTTPS 또는 WSS 요청의 성공을 확인한다.
-5. `delivery/retire-auth-secret`에 이전 bundle을 전달하여 Server에서 이전 digest를 폐기한다.
+2. `delivery/install-auth-secret --rotate server`로 Server에 새 token 항목을 추가한다.
+3. Backend Container를 재생성하여 두 token을 모두 수용하게 한다.
+4. `delivery/install-auth-secret --rotate edge`로 해당 Edge의 원문 token을 교체한다.
+5. HTTPS 요청의 성공을 확인한다.
+6. `delivery/retire-auth-secret`에 이전 bundle을 전달하여 Server에서 이전 token을 폐기하고 Backend를
+   재생성한다.
 
-일반 Release 적용과 같은 Release 재적용은 기존 token 파일을 유지한다. 대상의 token 파일 또는
-digest registry가 없거나 local 검증에 실패하면 일반 배포는 새 값을 임의로 생성하지 않고
+Media token rotation은 Server의 token이 교체되는 시점부터 이전 Edge token이 거부되므로 중첩 구간이
+없다. `--rotate server`와 `--rotate edge`를 연달아 수행하며 그 사이의 Camera 연결 실패를 감수한다.
+
+일반 Release 적용과 같은 Release 재적용은 기존 token 파일을 유지한다. 대상의 token 파일이 없거나
+local 검증에 실패하면 일반 배포는 새 값을 임의로 생성하지 않고
 credential Bootstrap 또는 rotation 복구를 요구한다. Credential bundle은 설치와 검증에만
 사용하며 Git, Release asset과 일반 배포 경로에 보관하지 않는다.
 
-인증 경계는 4개다.
+인증 경계는 5개다.
 
 | 호출 경계 | 인증과 보호 |
 | --- | --- |
 | Edge Platform에서 Backend | TLS와 Edge별 Bearer token |
 | Camera Edge에서 Camera Media Service | TLS와 Camera별 Bearer token |
+| Backend에서 Edge 제어 API | loopback 또는 Tailscale 주소 bind와 Edge별 제어 Bearer token, 최소 32자 ASCII이며 Backend token과 다른 파일 |
 | Browser에서 Server | TLS, Backend가 소유하는 사용자 session과 Cross-Site Request Forgery (CSRF) 보호 |
 | 같은 장비의 애플리케이션 내부 service | Unix Domain Socket (UDS) 권한 또는 외부에 공개하지 않은 Compose network, 내부 호출용 공용 token 미사용 |
 
@@ -293,17 +352,23 @@ SHA-256 fingerprint다. `PKI_CA_URL`은 host에서 접근하는 loopback 전용 
 | CONFIG_REVISION | Edge 장비 환경설정 | v2 등록 메시지의 config_revision과 일치 |
 | CONFIG_SHA256 | Generated environment | v2 runtime JSON에서 계산 |
 | LIDAR_A_IP, LIDAR_B_IP | Edge 장비 환경설정 | 현장 센서 주소 |
-| SYNTHETIC_CAMERA_SERVER_URL | Edge 장비 환경설정 | Visualizer WebSocket URL |
-| CAMERA_DEVICE | Edge 장비 환경설정 | V4L2 loopback device 경로 |
-| SIMULATOR_LIDAR_A_IP, SIMULATOR_LIDAR_B_IP | Server 장비 환경설정 | LiDAR별 UDP publish IP |
-| SIMULATOR_LIDAR_UDP_PORT | Server 장비 환경설정 | LiDAR별 공통 UDP port |
-| SIMULATOR_VISUALIZER_BIND_ADDRESS | Server 장비 환경설정 | Visualizer HTTP와 WebSocket publish IP |
+| LIDAR_A_SENSOR_ID, LIDAR_B_SENSOR_ID | Edge 장비 환경설정 | v2 등록 메시지의 sensor ID 순서와 일치 |
+| CAMERA_DEVICE | Edge 장비 환경설정 | V4L2 camera 장치 경로 |
+| EDGE_UPLINK_GID, CAMERA_AGENT_GID, VIDEO_GID | Edge 장비 환경설정 | `delivery/apply-release`가 host group에서 파생 |
+| DASHBOARD_SCRAP_ADMIN_GID | Server 장비 환경설정 | `delivery/apply-release`가 `scrap-admin`에서 파생 |
+| SERVER_FQDN, SERVER_BIND_ADDRESS, SERVER_HTTPS_PORT | Server 장비 환경설정 | Dashboard HTTPS 공개 주소 |
+| BACKEND_CORS_ORIGINS | Server 장비 환경설정 | Backend의 허용 origin |
+| DASHBOARD_TLS_CERTIFICATE_FILE, DASHBOARD_TLS_PRIVATE_KEY_FILE, DASHBOARD_TMPFS_SIZE | Server 장비 환경설정 | Dashboard TLS 입력과 tmpfs 크기 |
+| POSTGRESQL_INIT_DIRECTORY | Server 장비 환경설정 | Backend가 요구하는 PostgreSQL 초기화 파일의 host directory |
+| POSTGRES_DATA_PATH | Server 장비 환경설정 | PostgreSQL 영속 데이터의 host directory, Container의 `/var/lib/postgresql/data`에 bind하며 PGDATA는 `pgdata` 하위 |
+| MEDIA_EXPECTED_FS_UUID, MEDIA_EXPECTED_DEVICE, MEDIA_STORAGE_PATH, MEDIA_WITNESS_PARENT | Server 장비 환경설정 | Media SD 저장소 guard와 bind 경로 |
+| MEDIA_MAX_FRAME_BYTES | Server 장비 환경설정 | Media의 WebSocket frame 크기 제한 |
 | BACKEND_ORIGIN | Edge 장비 환경설정 | 설정, 측정, 판단과 상태의 공통 Backend HTTPS origin |
 | MEDIA_WSS_URL | Edge 장비 환경설정 | Media WSS 수신 경로 |
 | DEPLOYMENT_REVISION | Release 설정 | 통합 Release에서 생성 |
 | 이름이 IMAGE로 끝나는 변수 | Release 설정 | Manifest의 digest 고정 image |
-| Backend Bearer token | 비밀정보 | Edge별 원문 Client 파일과 Server digest registry |
-| Camera Media Bearer token | 비밀정보 | Camera별 원문 Client 파일과 Server digest registry |
+| Backend Bearer token | 비밀정보 | Edge별 원문 Client 파일과 Server의 `EDGE_V2_DEVICES` 파일 |
+| Camera Media Bearer token | 비밀정보 | Camera별 원문 Client 파일과 Server의 `EDGE_AUTH_SECRET` 파일 |
 | Root CA | PKI 상태 | Edge에 사전 설치한 인증서 |
 | PKI_ROOT_CA_SHA256 | Server 장비 환경설정 | Bootstrap 때 별도 확인한 Root CA fingerprint |
 | PKI_CA_URL | Server 장비 환경설정 | Host 인증서 자동화용 loopback CA URL |
@@ -317,8 +382,8 @@ delivery/validate-environment는 실제 값을 출력하지 않고 schema versio
 `delivery/generate-auth-secret`, `delivery/install-auth-secret`, `delivery/retire-auth-secret`과
 `delivery/validate-auth-secrets`가 token 생성, 설치, rotation과 배포 전 검증을 구현한다. 대상별
 systemd unit은 Compose 시작 전에 인증 파일을 검증한다. 전용 읽기 그룹과 Container 연결의
-구현 상태는 [docs/implementation.md](implementation.md)를 따른다. Component의 digest registry
-입력과 Compose service별 secret 연결은 구현되지 않았다.
+구현 상태는 [docs/implementation.md](implementation.md)를 따른다. Compose는 Edge token을 file
+secret으로, Server token을 `env_file`로 연결한다.
 
 `delivery/apply-release`는 Manifest 기반 release.env와 Edge 설정 hash 생성, 불변 Version
 staging, current 및 previous 전환, systemd 시작, Compose 실행 상태 확인과 실패 rollback을

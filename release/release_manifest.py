@@ -9,7 +9,6 @@ from jsonschema import Draft202012Validator
 
 VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 TARGETS = ("edge", "server")
-SCENARIOS = ("hardware", "simulation")
 
 
 def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -64,67 +63,33 @@ def validate_components(
         components = target_manifest["components"]
         if require_components and not components:
             raise ValueError(f"{target} component list is empty")
-        component_names: set[str] = set()
         for component in components:
             name = component["name"]
             if name in names:
                 raise ValueError(f"duplicate component name: {name}")
             names.add(name)
-            component_names.add(name)
 
             image = component["image"]
             if image in images:
                 raise ValueError(f"duplicate component image: {image}")
             images.add(image)
-            image_path = image.removeprefix("ghcr.io/ajin-scrap-monitoring/").split(
-                "@", maxsplit=1
-            )[0]
+            image_path = image.split("/", maxsplit=2)[-1].split("@", maxsplit=1)[0]
             if any(part in {"", ".", ".."} for part in image_path.split("/")):
                 raise ValueError(f"invalid component image path: {name}")
 
             for notice in component["notices"]:
                 validate_notice(repository, notice)
 
-        referenced: set[str] = set()
-        for scenario in SCENARIOS:
-            scenario_components = target_manifest["scenarios"][scenario]
-            if require_components and not scenario_components:
-                raise ValueError(f"{target} {scenario} component list is empty")
-            for name in scenario_components:
-                if name not in component_names:
-                    raise ValueError(
-                        f"scenario component is not defined: {target} {scenario}: {name}"
-                    )
-                referenced.add(name)
-        unreferenced = component_names - referenced
-        if unreferenced:
-            raise ValueError(
-                f"component is not referenced by a scenario: {target}: {min(unreferenced)}"
-            )
 
-
-def scenario_components(
-    manifest: dict[str, Any], target: str, scenario: str
-) -> list[dict[str, Any]]:
+def target_components(manifest: dict[str, Any], target: str) -> list[dict[str, Any]]:
     if target not in TARGETS:
         raise ValueError(f"invalid target: {target}")
-    if scenario not in SCENARIOS:
-        raise ValueError(f"invalid scenario: {scenario}")
-    target_manifest = manifest["targets"][target]
-    components = {
-        component["name"]: component for component in target_manifest["components"]
-    }
-    return [components[name] for name in target_manifest["scenarios"][scenario]]
+    return list(manifest["targets"][target]["components"])
 
 
-def release_variables(
-    manifest: dict[str, Any], target: str, scenario: str
-) -> dict[str, str]:
-    variables = {
-        "DEPLOYMENT_REVISION": manifest["version"],
-        "DEPLOYMENT_SCENARIO": scenario,
-    }
-    for component in scenario_components(manifest, target, scenario):
+def release_variables(manifest: dict[str, Any], target: str) -> dict[str, str]:
+    variables = {"DEPLOYMENT_REVISION": manifest["version"]}
+    for component in target_components(manifest, target):
         variable = f"{component['name'].replace('-', '_').upper()}_IMAGE"
         if variable in variables:
             raise ValueError(f"duplicate release environment variable: {variable}")

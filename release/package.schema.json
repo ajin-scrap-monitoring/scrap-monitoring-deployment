@@ -7,7 +7,6 @@
     "schemaVersion",
     "version",
     "target",
-    "scenario",
     "mode",
     "platform",
     "manifestSha256"
@@ -24,12 +23,6 @@
       "enum": [
         "edge",
         "server"
-      ]
-    },
-    "scenario": {
-      "enum": [
-        "hardware",
-        "simulation"
       ]
     },
     "mode": {
@@ -50,7 +43,7 @@
     },
     "imageArchive": {
       "type": "string",
-      "pattern": "^images/(edge|server)-(hardware|simulation)-images\\.tar$"
+      "pattern": "^images/(edge|server)-images\\.tar$"
     }
   },
   "allOf": [
@@ -68,7 +61,7 @@
             "const": "linux/arm64"
           },
           "imageArchive": {
-            "pattern": "^images/edge-(hardware|simulation)-images\\.tar$"
+            "pattern": "^images/edge-images\\.tar$"
           }
         }
       },
@@ -78,7 +71,7 @@
             "const": "linux/amd64"
           },
           "imageArchive": {
-            "pattern": "^images/server-(hardware|simulation)-images\\.tar$"
+            "pattern": "^images/server-images\\.tar$"
           }
         }
       }

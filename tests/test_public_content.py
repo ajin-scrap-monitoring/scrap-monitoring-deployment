@@ -20,6 +20,12 @@ FORBIDDEN_PATTERNS = {
         r"\b(?:10(?:\.[0-9]{1,3}){3}|192\.168(?:\.[0-9]{1,3}){2}|172\.(?:1[6-9]|2[0-9]|3[01])(?:\.[0-9]{1,3}){2})\b"
     ),
 }
+# Tailscale public standard range literals; each file may contain only these.
+ALLOWED_PUBLIC_LITERALS = {
+    "delivery/edge_configuration.py": ("100.64.0.0/10",),
+    "tests/test_edge_configuration.py": ("100.64.0.1",),
+    "tests/test_public_content.py": ("100.64.0.0/10", "100.64.0.1"),
+}
 
 
 def repository_files() -> list[Path]:
@@ -48,6 +54,10 @@ class PublicContentTest(unittest.TestCase):
                 content = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
+            for literal in ALLOWED_PUBLIC_LITERALS.get(
+                path.relative_to(REPOSITORY).as_posix(), ()
+            ):
+                content = content.replace(f'"{literal}"', '""')
             for label, pattern in FORBIDDEN_PATTERNS.items():
                 if pattern.search(content):
                     findings.append(f"{path.relative_to(REPOSITORY)}: {label}")

@@ -51,8 +51,6 @@ class DeliveryIntegrationTest(unittest.TestCase):
                     "v0.0.1",
                     "--target",
                     "edge",
-                    "--scenario",
-                    "hardware",
                     "--output",
                     str(fetched),
                 ],
@@ -79,7 +77,7 @@ class DeliveryIntegrationTest(unittest.TestCase):
 
     def test_offline_import_to_apply_handoff(self) -> None:
         assets = build_assets(self.temporary_path, "v0.0.1")
-        bundle = assets / "scrap-monitoring-edge-hardware-v0.0.1-offline.tar.gz"
+        bundle = assets / "scrap-monitoring-edge-v0.0.1-offline.tar.gz"
         with patch.dict(os.environ, self.environment, clear=True):
             subprocess.run(
                 [
@@ -88,8 +86,6 @@ class DeliveryIntegrationTest(unittest.TestCase):
                     "v0.0.1",
                     "--target",
                     "edge",
-                    "--scenario",
-                    "hardware",
                     "--bundle",
                     str(bundle),
                     "--checksums",
@@ -113,7 +109,7 @@ class DeliveryIntegrationTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            (self.temporary_path / "images" / "edge-hardware-images.tar").read_bytes(),
+            (self.temporary_path / "images" / "edge-images.tar").read_bytes(),
             (self.temporary_path / "loaded-images.tar").read_bytes(),
         )
         self.assertEqual(
