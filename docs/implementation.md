@@ -110,7 +110,8 @@ UID/GID `10001:10001` 소유권을 확인하고, Server의 `POSTGRESQL_INIT_DIRE
 배포 적용기는 검증한 정확한 byte의 SHA-256을 생성하며 Edge systemd도 실행 전에 같은 입력을
 검사한다. Compose 구성과 미확정 항목은 `장비별 개발 구성`과 `미확정 구현 결정`을 따른다.
 
-통합 version manifest `release/manifests/v0.1.0.json`과 `release/manifests/v0.1.1.json`이 구성되어 있다.
+통합 version manifest `release/manifests/v0.1.0.json`, `release/manifests/v0.1.1.json`과
+`release/manifests/v0.1.2.json`이 구성되어 있다.
 실제 장비에서 전체 시스템을 연결하는 통합 수락 검사는 완료되지 않았다.
 
 ## Component 연동 상태
@@ -134,14 +135,14 @@ Component의 현재 계약이 이 Repository의 정책과 충돌하면 Component
 | Edge Platform | [cfc692599023f7ab52c209529a101e5a830bc893](https://github.com/ajin-scrap-monitoring/ajin-edge-platform/tree/cfc692599023f7ab52c209529a101e5a830bc893) |
 | Backend | [530a6ac81c1c85b86993321488fe7c5b3d9d01bb](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/530a6ac81c1c85b86993321488fe7c5b3d9d01bb) |
 | Camera Media Service | [b9d3308916b59f8b2eb067c4b0685e1952fc8023](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/tree/b9d3308916b59f8b2eb067c4b0685e1952fc8023) |
-| Dashboard | [eecf6fcf079c120f7a26a548b80651f3b869f4f8](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/eecf6fcf079c120f7a26a548b80651f3b869f4f8) |
+| Dashboard | [fc51029ab74a62a73c861d7da74631748505b312](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/fc51029ab74a62a73c861d7da74631748505b312) |
 
 | Component | 고정 source의 계약 | 배포 미완료 사항 |
 | --- | --- | --- |
 | Edge Platform | `v0.1.1` Public ARM64 v1 image, v2 processing, uplink, orchestrator와 calibration API의 `edge-v2` entrypoint와 runtime JSON, Driver `--schema-version 2.0`, file token과 Camera WSS (`camera-edge`는 `websockets` SSL context, `v2` `runtime.py`는 `httpx.AsyncClient(trust_env=False)`) | v2 Release와 v2 Compose 예제, Release workflow의 Package 공개 범위, `httpx(trust_env=False)`의 `SSL_CERT_FILE` 무시 해소 |
 | Backend | `v0.2.0` Public AMD64 image(비공개 설정 서버 용량 경고 CLI 포함), v2 Bearer ingest와 저장 Acknowledgement (ACK), `EDGE_V2_DEVICES` 원문 token JSON, PostgreSQL 17 Compose 계약과 role 분리, Alembic schema, 계정과 session, Media 제어 Application Programming Interface (API)와 날짜 녹화, health와 readiness | `MEDIA_API_TOKEN` 필수 조건, PostgreSQL 초기화 파일 전달 자동화, migration 및 backup 자동화 |
 | Camera Media Service | AMD64 Dockerfile과 SD 저장소 Compose 계약(`compose.sd.yaml`, `SD_STORAGE.md`), Camera별 Bearer binary JPEG ingest, `EDGE_AUTH_SECRET` 원문 token JSON, 내부 HTTP API, MJPEG live와 MP4 clip, 날짜 녹화 | Release, SD host preflight 전달, Dockerfile의 health check |
-| Dashboard | `v1.0.0` Public AMD64 image, v2 모니터링과 MJPEG, 날짜 녹화 및 MP4, runtime JSON, TLS 및 reverse proxy 설정 asset과 배포 예제 | Edge ingest 경로의 Dashboard 수용 여부, timeout과 Content Security Policy (CSP)의 통합 검증 |
+| Dashboard | `v1.0.1` Public AMD64 image, v2 모니터링과 MJPEG, 날짜 녹화 및 MP4, runtime JSON, TLS 및 reverse proxy 설정 asset과 배포 예제 | Edge ingest 경로의 Dashboard 수용 여부, timeout과 Content Security Policy (CSP)의 통합 검증 |
 
 Release 기준은 다음과 같다.
 
@@ -150,9 +151,12 @@ Release 기준은 다음과 같다.
 | Edge Platform Release | `v0.1.1` | v1 image |
 | Backend Release | `v0.2.0` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-backend@sha256:3ce9df2e224654f7f8c9b1a6618df676dc091b93ea211f2c3f7324c972396ee3` |
 | Camera Media Service Release | 없음 | GHCR Package 없음 |
-| Dashboard Release | `v1.0.0` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199` |
+| Dashboard Release | `v1.0.1` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:df6ecd3918f0ddc8daebf5d7f6c97a3d7de5bd34ac8e8b74fa8c239b90db4a76` |
 
-Dashboard의 마지막 Release 이후 `main` 변경은 `.env.example`의 기본 image digest 갱신에 한정된다.
+Dashboard `v1.0.1`은 `v1.0.0`과 같은 배포 asset(`deployment-example.tar.gz`, `nginx-config.tar.gz`,
+`contract-manifest.json`, runtime 설정 예시와 schema)을 제공하며 변경은 Browser의 실시간 표시 유지
+정책(적재율과 LiDAR 곡선 최대 10초, MJPEG frame 최대 5초)에 한정된다. 마지막 Release 이후 `main`
+변경은 `.env.example`의 기본 image digest 갱신에 한정된다.
 
 Edge와 Backend의 수신 경로 및 저장 ACK 계약은
 [docs/deployment-contract.md](deployment-contract.md)의 Component 연동을 따른다.
@@ -193,8 +197,8 @@ Release가 게시한 참조는 다음과 같으며 이 배포 Repository의 imag
 
 | 항목 | 게시 값 |
 | --- | --- |
-| Release source | `594222347b878cd7b17e976f92b45d1ce3f48be5` |
-| image 참조 | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199` |
+| Release source | `a04b109cec66a93649a3e6a604e7e39cacd4922e` |
+| image 참조 | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:df6ecd3918f0ddc8daebf5d7f6c97a3d7de5bd34ac8e8b74fa8c239b90db4a76` |
 | 배포 asset | `contract-manifest.json`, `deployment-example.tar.gz`, `image-reference.txt`, `nginx-config.tar.gz`, `runtime-config.example.json`, `runtime-config.schema.json`, `SHA256SUMS` |
 
 Release 게시 상태는 개발용 Dashboard Container의 실행 version을 의미하지 않는다. 고정 source는
