@@ -110,7 +110,7 @@ UID/GID `10001:10001` 소유권을 확인하고, Server의 `POSTGRESQL_INIT_DIRE
 배포 적용기는 검증한 정확한 byte의 SHA-256을 생성하며 Edge systemd도 실행 전에 같은 입력을
 검사한다. Compose 구성과 미확정 항목은 `장비별 개발 구성`과 `미확정 구현 결정`을 따른다.
 
-통합 version manifest `release/manifests/v0.1.0.json`과 통합 Release `v0.1.0`이 게시되어 있다.
+통합 version manifest `release/manifests/v0.1.0.json`과 `release/manifests/v0.1.1.json`이 구성되어 있다.
 실제 장비에서 전체 시스템을 연결하는 통합 수락 검사는 완료되지 않았다.
 
 ## Component 연동 상태
