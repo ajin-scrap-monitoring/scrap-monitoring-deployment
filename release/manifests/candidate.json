@@ -84,10 +84,10 @@
         {
           "name": "scrap-monitoring-dashboard",
           "sourceRepository": "https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard",
-          "sourceRevision": "594222347b878cd7b17e976f92b45d1ce3f48be5",
-          "version": "v1.0.0",
+          "sourceRevision": "a04b109cec66a93649a3e6a604e7e39cacd4922e",
+          "version": "v1.0.1",
           "imageProvider": "component-release",
-          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:df6ecd3918f0ddc8daebf5d7f6c97a3d7de5bd34ac8e8b74fa8c239b90db4a76",
           "packageVisibility": "public",
           "pullAuthentication": "none",
           "notices": []
