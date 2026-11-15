@@ -26,6 +26,9 @@ class ServerPreflightTest(unittest.TestCase):
             "srv/ajin-camera-storage/sd/camera-media",
         ):
             (self.root / path).mkdir(parents=True)
+        init_dir = self.root / "srv/scrap-monitoring/data/postgresql-init"
+        for filename in ("init.sh", "roles.sql", "runtime-grants.sql"):
+            (init_dir / filename).write_text("# fixture\n", encoding="utf-8")
         self.commands = []
 
     def checked(self, command, **kwargs):
@@ -103,6 +106,16 @@ class ServerPreflightTest(unittest.TestCase):
             self.assertFalse(
                 any(Path(c[0]).name == "validate-auth-secrets" for c in self.commands)
             )
+
+    def test_missing_postgresql_init_file_fails_before_secret_checks(self):
+        self.install_dashboard()
+        (self.root / "srv/scrap-monitoring/data/postgresql-init/init.sh").unlink()
+        self.commands.clear()
+        with self.assertRaisesRegex(ValueError, "PostgreSQL init file init.sh"):
+            self.validate()
+        self.assertFalse(
+            any(Path(c[0]).name == "validate-auth-secrets" for c in self.commands)
+        )
 
 
 if __name__ == "__main__":

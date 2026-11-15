@@ -18,9 +18,21 @@ from typing import Any
 
 try:
     from .edge_configuration import read_configuration
+    from .edge_runtime import (
+        EDGE_RUNTIME_GID,
+        EDGE_RUNTIME_UID,
+        POSTGRESQL_INIT_FILES,
+        RUNTIME_SUBDIRECTORIES,
+    )
     from .release_verifier import TARGET_PLATFORMS, archive_members, verify_release
 except ImportError:
     from edge_configuration import read_configuration
+    from edge_runtime import (
+        EDGE_RUNTIME_GID,
+        EDGE_RUNTIME_UID,
+        POSTGRESQL_INIT_FILES,
+        RUNTIME_SUBDIRECTORIES,
+    )
     from release_verifier import TARGET_PLATFORMS, archive_members, verify_release
 
 MACHINE_PLATFORMS = {
@@ -434,18 +446,31 @@ def validate_target_inputs(
     generated = None
     if target == "edge":
         generated = create_edge_generated_environment(environment, host_root)
-        require_host_path(
-            host_root,
-            environment["RUNTIME_DIR"],
-            directory=True,
-            label="Edge runtime",
-        )
-        require_host_path(
-            host_root,
-            environment["CONTROL_DIR"],
-            directory=True,
-            label="Edge control directory",
-        )
+        runtime_posix = PurePosixPath(environment["RUNTIME_DIR"])
+        runtime_targets = [
+            (environment["RUNTIME_DIR"], "Edge runtime"),
+            *(
+                (str(runtime_posix / subdirectory), f"Edge runtime {subdirectory}")
+                for subdirectory in RUNTIME_SUBDIRECTORIES
+            ),
+            (environment["CONTROL_DIR"], "Edge control directory"),
+        ]
+        for target_path, label in runtime_targets:
+            resolved = require_host_path(
+                host_root,
+                target_path,
+                directory=True,
+                label=label,
+            )
+            if host_root == Path("/"):
+                metadata = resolved.stat()
+                if (
+                    metadata.st_uid != EDGE_RUNTIME_UID
+                    or metadata.st_gid != EDGE_RUNTIME_GID
+                ):
+                    raise ValueError(
+                        f"{label} owner must be {EDGE_RUNTIME_UID}:{EDGE_RUNTIME_GID}: {resolved}"
+                    )
         camera_device = environment["CAMERA_DEVICE"]
         require_host_path(
             host_root,
@@ -476,6 +501,14 @@ def validate_target_inputs(
         ):
             require_host_path(
                 host_root, environment[variable], directory=True, label=label
+            )
+        init_directory = PurePosixPath(environment["POSTGRESQL_INIT_DIRECTORY"])
+        for filename in POSTGRESQL_INIT_FILES:
+            require_host_path(
+                host_root,
+                str(init_directory / filename),
+                directory=False,
+                label=f"PostgreSQL init file {filename}",
             )
     secret_validator = stage / "delivery" / "validate-auth-secrets"
     command = [str(secret_validator), "--root", str(host_root), target]

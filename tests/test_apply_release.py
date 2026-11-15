@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from delivery.edge_runtime import install_edge_runtime
 from delivery.release_applier import (
     CertificateSnapshot,
     apply_release,
@@ -106,7 +107,7 @@ def prepare_edge_host(temporary_path: Path) -> tuple[Path, Path]:
         json.dumps(runtime_document()),
         encoding="utf-8",
     )
-    (host_root / "opt" / "ajin" / "runtime" / "v2" / "control").mkdir(parents=True)
+    install_edge_runtime(environment_file, host_root)
     camera = host_root / "dev" / "video0"
     camera.parent.mkdir(parents=True)
     camera.write_text("camera fixture\n", encoding="utf-8")
@@ -529,6 +530,22 @@ class ApplyReleaseTest(unittest.TestCase):
         (self.host_root / "opt" / "ajin" / "secrets" / "edge-token").unlink()
 
         with self.assertRaises(subprocess.CalledProcessError):
+            self.apply(args)
+
+        self.assertFalse((self.temporary_path / "deployment" / "current").exists())
+
+    def test_rejects_missing_edge_runtime_subdirectory_without_switching(self) -> None:
+        assets = build_assets(self.temporary_path, "v0.0.1")
+        args = apply_arguments(
+            self.temporary_path,
+            assets,
+            "v0.0.1",
+            self.host_root,
+            self.environment_file,
+        )
+        (self.host_root / "opt" / "ajin" / "runtime" / "v2" / "sockets" / "a").rmdir()
+
+        with self.assertRaisesRegex(ValueError, "Edge runtime sockets/a"):
             self.apply(args)
 
         self.assertFalse((self.temporary_path / "deployment" / "current").exists())
