@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 2,
+  "version": "v0.1.0",
+  "targets": {
+    "edge": {
+      "platform": "linux/arm64",
+      "components": [
+        {
+          "name": "ajin-lidar-driver",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-edge-platform",
+          "sourceRevision": "cfc692599023f7ab52c209529a101e5a830bc893",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-lidar-driver@sha256:94aa17f7d90c5b585fa7244f272b0adcbf3278f7e4c4e60cac12359b07287016",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "ajin-lidar-processing",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-edge-platform",
+          "sourceRevision": "cfc692599023f7ab52c209529a101e5a830bc893",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-lidar-processing@sha256:9591688f120fd2574b6c9313e04bb842e6f572c5bbb97cee9813364c7f24224a",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "ajin-measurement-uplink",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-edge-platform",
+          "sourceRevision": "cfc692599023f7ab52c209529a101e5a830bc893",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-measurement-uplink@sha256:c5f07de34ca7cf16409d9616a84e2c37d760bb476a0b1453be1a9cd4aa967513",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "ajin-edge-orchestrator",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-edge-platform",
+          "sourceRevision": "cfc692599023f7ab52c209529a101e5a830bc893",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-edge-orchestrator@sha256:787b14498b9257d566b5637803b2df218c4322a6f63c8d4c57237a6075b8c8dc",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "ajin-camera-edge",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-edge-platform",
+          "sourceRevision": "cfc692599023f7ab52c209529a101e5a830bc893",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-camera-edge@sha256:9184c0953a3d1fd9ba9c74e2acc863dc7b9b7cdc6ad793ef674034f6a765282a",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        }
+      ]
+    },
+    "server": {
+      "platform": "linux/amd64",
+      "components": [
+        {
+          "name": "scrap-monitoring-backend",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend",
+          "sourceRevision": "b334606a68e53b28377997e07a5e096fdfe5bf55",
+          "version": "v0.2.0",
+          "imageProvider": "component-release",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-backend@sha256:3ce9df2e224654f7f8c9b1a6618df676dc091b93ea211f2c3f7324c972396ee3",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "ajin-camera-media-service",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/ajin-camera-media-service",
+          "sourceRevision": "b9d3308916b59f8b2eb067c4b0685e1952fc8023",
+          "imageProvider": "deployment-build",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/ajin-camera-media-service@sha256:5b54d16be06b9aa5336e3538f8afed40d7cec6ab4f0cddfa26bfffda9b6465e9",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "scrap-monitoring-dashboard",
+          "sourceRepository": "https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard",
+          "sourceRevision": "594222347b878cd7b17e976f92b45d1ce3f48be5",
+          "version": "v1.0.0",
+          "imageProvider": "component-release",
+          "image": "ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "postgres",
+          "sourceRepository": "https://github.com/docker-library/postgres",
+          "sourceRevision": "76a70e36d51517f2ab061a9bb60b1980a6902e29",
+          "version": "v17.12.0",
+          "image": "docker.io/library/postgres@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        },
+        {
+          "name": "step-ca",
+          "sourceRepository": "https://github.com/smallstep/certificates",
+          "sourceRevision": "6e8ec61405239cf3f37b2bbf260a587b7d2e4e31",
+          "version": "v0.30.2",
+          "image": "docker.io/smallstep/step-ca@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270",
+          "packageVisibility": "public",
+          "pullAuthentication": "none",
+          "notices": []
+        }
+      ]
+    }
+  }
+}
