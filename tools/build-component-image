@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Build a development image of a pinned component source revision.
+
+The image is loaded into the local Docker store only. The component source is
+fetched read-only by full commit SHA and built with its own Dockerfile.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
+
+ORGANIZATION = "ajin-scrap-monitoring"
+BUILD_LABEL = "io.ajin.scrap-deployment.build"
+PLATFORMS = ("linux/amd64", "linux/arm64")
+NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,62}")
+REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
+RELATIVE_PATH_PATTERN = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._/-]*")
+DEFAULT_RECORD = Path("/var/tmp/scrap-component-builds.tsv")
+
+Runner = Callable[[Sequence[str]], str]
+
+
+def run_command(command: Sequence[str]) -> str:
+    result = subprocess.run(
+        command, check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL
+    )
+    return result.stdout
+
+
+def validate_relative_path(value: str, label: str) -> str:
+    parts = value.split("/")
+    if (
+        not RELATIVE_PATH_PATTERN.fullmatch(value)
+        or value.startswith("/")
+        or ".." in parts
+        or "" in parts
+    ):
+        raise ValueError(f"{label} must be a relative path inside the source")
+    return value
+
+
+def validate_arguments(
+    repository: str,
+    image: str,
+    revision: str,
+    platform: str,
+    dockerfile: str,
+    context: str,
+) -> None:
+    if not NAME_PATTERN.fullmatch(repository):
+        raise ValueError("repository name is invalid")
+    if not NAME_PATTERN.fullmatch(image):
+        raise ValueError("image name is invalid")
+    if not REVISION_PATTERN.fullmatch(revision):
+        raise ValueError("revision must be a full 40-character commit SHA")
+    if platform not in PLATFORMS:
+        raise ValueError("platform must be linux/amd64 or linux/arm64")
+    validate_relative_path(dockerfile, "Dockerfile")
+    validate_relative_path(context, "context")
+
+
+def image_tag(image: str, revision: str) -> str:
+    return f"scrap-dev/{image}:main-{revision[:7]}"
+
+
+def source_url(repository: str) -> str:
+    return f"https://github.com/{ORGANIZATION}/{repository}"
+
+
+def fetch_source(
+    repository: str, revision: str, destination: Path, run: Runner = run_command
+) -> None:
+    """Fetch exactly one commit and verify that HEAD equals the pinned SHA."""
+    git = ["git", "-C", str(destination)]
+    run(["git", "init", "--quiet", str(destination)])
+    run([*git, "remote", "add", "origin", source_url(repository) + ".git"])
+    run([*git, "fetch", "--quiet", "--depth", "1", "origin", revision])
+    run([*git, "checkout", "--quiet", "--detach", "FETCH_HEAD"])
+    head = run([*git, "rev-parse", "HEAD"]).strip()
+    if head != revision:
+        raise ValueError("fetched HEAD does not match the pinned revision")
+
+
+def build_command(
+    repository: str,
+    image: str,
+    revision: str,
+    platform: str,
+    dockerfile: str,
+    context: str,
+    source: Path,
+) -> list[str]:
+    return [
+        "docker",
+        "buildx",
+        "build",
+        "--platform",
+        platform,
+        "--file",
+        str(source / dockerfile),
+        "--label",
+        f"org.opencontainers.image.source={source_url(repository)}",
+        "--label",
+        f"org.opencontainers.image.revision={revision}",
+        "--label",
+        f"{BUILD_LABEL}=development",
+        "--tag",
+        image_tag(image, revision),
+        "--load",
+        str(source / context),
+    ]
+
+
+def verify_image(
+    tag: str, revision: str, platform: str, run: Runner = run_command
+) -> str:
+    """Check the revision label, development label and os/arch; return the image ID."""
+    document = json.loads(run(["docker", "image", "inspect", tag]))[0]
+    labels = document.get("Config", {}).get("Labels") or {}
+    if labels.get("org.opencontainers.image.revision") != revision:
+        raise ValueError("image revision label does not match the pinned revision")
+    if labels.get(BUILD_LABEL) != "development":
+        raise ValueError("image development label is missing")
+    actual = f"{document.get('Os')}/{document.get('Architecture')}"
+    if actual != platform:
+        raise ValueError(f"image platform {actual} does not match {platform}")
+    image_id = document.get("Id")
+    if not isinstance(image_id, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", image_id
+    ):
+        raise ValueError("image ID is invalid")
+    return image_id
+
+
+def append_record(
+    record: Path,
+    tag: str,
+    revision: str,
+    platform: str,
+    image_id: str,
+    now: datetime | None = None,
+) -> None:
+    timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fields = [timestamp, tag, revision, platform, image_id]
+    record.parent.mkdir(parents=True, exist_ok=True)
+    with record.open("a", encoding="utf-8") as stream:
+        stream.write("\t".join(fields) + "\n")
+
+
+def build(
+    repository: str,
+    image: str,
+    revision: str,
+    platform: str,
+    dockerfile: str,
+    context: str,
+    record: Path,
+    run: Runner = run_command,
+) -> str:
+    validate_arguments(repository, image, revision, platform, dockerfile, context)
+    with tempfile.TemporaryDirectory(prefix="scrap-component-source-") as temporary:
+        source = Path(temporary) / "source"
+        source.mkdir()
+        fetch_source(repository, revision, source, run)
+        for relative in (dockerfile, context):
+            if not (source / relative).exists():
+                raise ValueError(f"source does not contain {relative}")
+        run(
+            build_command(
+                repository, image, revision, platform, dockerfile, context, source
+            )
+        )
+    tag = image_tag(image, revision)
+    image_id = verify_image(tag, revision, platform, run)
+    append_record(record, tag, revision, platform, image_id)
+    return image_id
+
+
+def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build a local development image from a pinned component revision."
+    )
+    parser.add_argument("--repository", required=True, help="component repository name")
+    parser.add_argument("--image", required=True, help="image name under scrap-dev/")
+    parser.add_argument(
+        "--revision", required=True, help="full 40-character commit SHA"
+    )
+    parser.add_argument("--platform", required=True, choices=PLATFORMS)
+    parser.add_argument("--dockerfile", default="Dockerfile")
+    parser.add_argument("--context", default=".")
+    parser.add_argument("--record", type=Path, default=DEFAULT_RECORD)
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = parse_arguments(argv)
+    try:
+        image_id = build(
+            arguments.repository,
+            arguments.image,
+            arguments.revision,
+            arguments.platform,
+            arguments.dockerfile,
+            arguments.context,
+            arguments.record,
+        )
+    except (ValueError, subprocess.CalledProcessError, OSError) as error:
+        print(f"component image build failed: {type(error).__name__}", file=sys.stderr)
+        if isinstance(error, ValueError):
+            print(error, file=sys.stderr)
+        return 1
+    print(f"{image_tag(arguments.image, arguments.revision)} {image_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
