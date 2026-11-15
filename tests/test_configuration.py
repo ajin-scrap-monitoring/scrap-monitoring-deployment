@@ -12,36 +12,30 @@ VALIDATE_ENVIRONMENT = REPOSITORY / "delivery" / "validate-environment"
 class EnvironmentValidationTest(unittest.TestCase):
     def test_accepts_environment_matching_public_schema(self) -> None:
         for target in ("edge", "server"):
-            for scenario in ("hardware", "simulation"):
-                with (
-                    self.subTest(target=target, scenario=scenario),
-                    tempfile.TemporaryDirectory() as temporary,
-                ):
-                    environment = Path(temporary) / f"{target}.env"
-                    environment.write_text(
-                        (
-                            REPOSITORY / "targets" / target / scenario / ".env.example"
-                        ).read_text(encoding="utf-8"),
-                        encoding="utf-8",
-                    )
-                    result = subprocess.run(
-                        [
-                            str(VALIDATE_ENVIRONMENT),
-                            target,
-                            scenario,
-                            str(environment),
-                        ],
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(0, result.returncode, result.stderr)
+            with (
+                self.subTest(target=target),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                environment = Path(temporary) / f"{target}.env"
+                environment.write_text(
+                    (REPOSITORY / "targets" / target / ".env.example").read_text(
+                        encoding="utf-8"
+                    ),
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [str(VALIDATE_ENVIRONMENT), target, str(environment)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
 
     def test_rejects_missing_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             environment = Path(temporary) / "edge.env"
             lines = (
-                (REPOSITORY / "targets" / "edge" / "hardware" / ".env.example")
+                (REPOSITORY / "targets" / "edge" / ".env.example")
                 .read_text(encoding="utf-8")
                 .splitlines()
             )
@@ -49,7 +43,7 @@ class EnvironmentValidationTest(unittest.TestCase):
             environment.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
             result = subprocess.run(
-                [str(VALIDATE_ENVIRONMENT), "edge", "hardware", str(environment)],
+                [str(VALIDATE_ENVIRONMENT), "edge", str(environment)],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -62,7 +56,7 @@ class EnvironmentValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             environment = Path(temporary) / "edge.env"
             lines = (
-                (REPOSITORY / "targets" / "edge" / "hardware" / ".env.example")
+                (REPOSITORY / "targets" / "edge" / ".env.example")
                 .read_text(encoding="utf-8")
                 .splitlines()
             )
@@ -70,7 +64,7 @@ class EnvironmentValidationTest(unittest.TestCase):
             environment.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
             result = subprocess.run(
-                [str(VALIDATE_ENVIRONMENT), "edge", "hardware", str(environment)],
+                [str(VALIDATE_ENVIRONMENT), "edge", str(environment)],
                 check=False,
                 capture_output=True,
                 text=True,

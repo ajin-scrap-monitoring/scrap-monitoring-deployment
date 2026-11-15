@@ -6,7 +6,7 @@
 
 ## 주요 기능
 
-- Edge와 Server hardware 배포 구성
+- Edge와 Server 배포 구성
 - Outbound Pull과 Offline Bundle 배포 경로
 - Release manifest, Package와 checksum 검증
 - Private PKI 인증서와 애플리케이션 token 배포 도구
@@ -18,7 +18,7 @@
 | Docker Engine | `29.8.0` |
 | Docker Compose plugin | `5.5.1` |
 
-## Hardware 배포 순서
+## 배포 순서
 
 ### 1. Host Bootstrap
 
@@ -42,27 +42,28 @@ trust를 등록한다.
 ### 3. 대상 설정
 
 아래 설정 절에서 두 대상의 환경 파일을 설치하고 현장 값을 설정한다. Edge의 v2 runtime JSON, runtime
-directory, camera device와 Root CA 파일, Server의 Backend와 Media storage directory가 존재해야 한다.
+directory, camera device와 Root CA 파일, Server의 PostgreSQL 초기화 파일 및 데이터 directory, Media SD 저장소와
+mount witness 상위 directory가 존재해야 한다.
 
 ### 4. Credential Bootstrap
 
-Edge 환경 파일의 `EDGE_ID`와 `CAMERA_ID`를 확정한 뒤 [delivery/README.md](delivery/README.md)의
+Edge 환경 파일의 `SITE_ID`, `EDGE_ID`, LiDAR sensor 식별자와 `CAMERA_ID`를 확정한 뒤 [delivery/README.md](delivery/README.md)의
 credential Bootstrap을 완료한다.
 
 ### 5. Server Release 적용
 
-[Server hardware deployment](#server-hardware-deployment)의 Release 적용을 완료한다.
+[Server deployment](#server-deployment)의 Release 적용을 완료한다.
 
 ### 6. Edge Release 적용
 
-[Edge hardware deployment](#edge-hardware-deployment)의 Release 적용을 완료한다.
+[Edge deployment](#edge-deployment)의 Release 적용을 완료한다.
 
 ## 설정
 
-각 대상에는 `hardware` 환경 파일을 설치한다. 실제 설정값의 소유권은
+각 대상의 환경 파일을 설치한다. 실제 설정값의 소유권은
 [docs/configuration-management.md](docs/configuration-management.md)를 따른다.
 
-### Edge hardware configuration
+### Edge configuration
 
 ```bash
 sudo delivery/install-environment --target edge
@@ -76,6 +77,12 @@ sudo delivery/install-environment --target edge
 | `EDGE_ID` | Edge 장비 식별자 |
 | `CONFIG_REVISION` | v2 설정 등록의 승인된 revision |
 | `CAMERA_ID` | 연결한 홈캠 식별자 |
+| `CONTROL_DIR` | 보정 제어 상태 directory |
+| `CALIBRATION_API_HOST` | 제어 API bind 주소(loopback 또는 Tailscale) |
+| `CALIBRATION_API_PORT` | 제어 API TCP port |
+| `CALIBRATION_TOKEN_FILE` | 설치한 제어 token 파일 경로 |
+| `LIDAR_A_SENSOR_ID` | v2 등록 메시지의 첫 번째 sensor 식별자 |
+| `LIDAR_B_SENSOR_ID` | v2 등록 메시지의 두 번째 sensor 식별자 |
 | `RUNTIME_DIR` | 기존 v1과 분리된 Edge runtime 경로 |
 | `CONFIG_FILE` | 승인된 v2 runtime JSON 경로 |
 | `LIDAR_A_IP` | 첫 번째 LiDAR IP |
@@ -87,13 +94,13 @@ sudo delivery/install-environment --target edge
 | `EDGE_ROOT_CA_FILE` | 설치한 Root CA 인증서 경로 |
 | `CAMERA_DEVICE` | 홈캠 Video4Linux 장치 경로 |
 
-### Server hardware configuration
+### Server configuration
 
 ```bash
 sudo delivery/install-environment --target server
 ```
 
-`/etc/scrap-monitoring/server.env`의 다음 13개 환경변수를 현장 값으로 설정한다.
+`/etc/scrap-monitoring/server.env`의 다음 환경변수를 현장 값으로 설정한다. `DASHBOARD_SCRAP_ADMIN_GID`는 배포 적용기가 기록한다.
 
 | 환경변수 | 설정 또는 확인 값 |
 | --- | --- |
@@ -105,10 +112,13 @@ sudo delivery/install-environment --target server
 | `DASHBOARD_TMPFS_SIZE` | Dashboard writable temporary filesystem 제한 |
 | `DASHBOARD_TLS_CERTIFICATE_FILE` | Server certificate chain 경로 |
 | `DASHBOARD_TLS_PRIVATE_KEY_FILE` | Server private key 경로 |
-| `BACKEND_DATA_PATH` | Backend persistent storage 경로 |
+| `POSTGRESQL_INIT_DIRECTORY` | Backend의 PostgreSQL 초기화 파일 directory |
+| `POSTGRES_DATA_PATH` | PostgreSQL 영속 데이터 host directory |
 | `BACKEND_CORS_ORIGINS` | 허용할 Browser origin |
-| `MEDIA_INGEST_PORT` | Camera Media Service 내부 WSS port |
-| `MEDIA_STORAGE_PATH` | Media persistent storage 경로 |
+| `MEDIA_EXPECTED_FS_UUID` | Media SD 저장소의 filesystem UUID |
+| `MEDIA_EXPECTED_DEVICE` | Media SD 저장소의 `major:minor` 장치 번호 |
+| `MEDIA_STORAGE_PATH` | Media 저장소 bind 경로 |
+| `MEDIA_WITNESS_PARENT` | Media mount witness의 상위 경로 |
 | `MEDIA_MAX_FRAME_BYTES` | binary JPEG frame 최대 byte |
 
 Dashboard runtime 설정 파일의 설치는
@@ -119,14 +129,14 @@ Dashboard runtime 설정 파일의 설치는
 공개된 통합 Release와 대상별 Online Package가 있어야 다음 명령을 실행할 수 있다.
 제공 상태와 외부 의존 조건은 [docs/implementation.md](docs/implementation.md)를 따른다.
 
-### Server hardware deployment
+### Server deployment
 
 ```bash
 # Replace <release-version> with a published tag, for example v3.6.6.
 sudo delivery/quick-start --target server --version "<release-version>"
 ```
 
-### Edge hardware deployment
+### Edge deployment
 
 ```bash
 # Replace <release-version> with a published tag, for example v3.6.6.
@@ -140,6 +150,8 @@ sudo tests/validate-container
 ```
 
 Validation container에서 Markdown, YAML, Python, Shell, Compose, systemd와 단위 검사를 실행한다.
+실제 개발 장비의 접속, 활성 Compose, 검증 명령과 관리 경계는
+[docs/implementation.md](docs/implementation.md#장비별-개발-구성)를 따른다.
 
 ## 배포
 
@@ -149,12 +161,12 @@ Offline Bundle 적용은 [delivery/offline/README.md](delivery/offline/README.md
 
 | 문서 | 역할 |
 | --- | --- |
-| [docs/project-spec.md](docs/project-spec.md) | 제품 목적, 범위, 배포 대상과 시나리오 |
+| [docs/project-spec.md](docs/project-spec.md) | 제품 목적, 범위와 배포 대상 |
 | [docs/deployment-contract.md](docs/deployment-contract.md) | 외부 입력, 대상별 동작과 수락 검사 |
 | [docs/configuration-management.md](docs/configuration-management.md) | 설정값과 비밀정보의 소유권 및 동기화 |
 | [docs/implementation.md](docs/implementation.md) | 채택한 구조, 구현 범위와 component 연동 상태 |
 | [docs/pki-operations.md](docs/pki-operations.md) | Private PKI Bootstrap, 인증서 발급과 갱신 |
-| [docs/simulation-deployment.md](docs/simulation-deployment.md) | Simulation Server, Visualizer와 Camera Edge Bridge 배포 |
+| [docs/edge-geometry.md](docs/edge-geometry.md) | 개발 장비 Edge의 적재공간, LiDAR와 Camera 형상 기준 |
 
 ## 이용 조건
 

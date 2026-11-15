@@ -2,20 +2,18 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: install-environment --target <edge|server> [--scenario <hardware|simulation>] [--root <directory>]'
+  printf '%s\n' 'Usage: install-environment --target <edge|server> [--root <directory>]'
 }
 
 target=""
-scenario="hardware"
 root_directory="/"
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --help) usage; exit 0 ;;
-    --target|--scenario|--root)
+    --target|--root)
       [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
       case "$1" in
         --target) target="$2" ;;
-        --scenario) scenario="$2" ;;
         --root) root_directory="$2" ;;
       esac
       shift 2
@@ -23,8 +21,7 @@ while [[ "$#" -gt 0 ]]; do
     *) usage >&2; exit 2 ;;
   esac
 done
-if [[ "${target}" != "edge" && "${target}" != "server" ]] \
-  || [[ "${scenario}" != "hardware" && "${scenario}" != "simulation" ]]; then
+if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
   usage >&2
   exit 2
 fi
@@ -43,7 +40,7 @@ if [[ "${root_directory}" == "/" ]] && ! getent group scrap-admin >/dev/null; th
 fi
 
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-template="${script_directory}/../targets/${target}/${scenario}/.env.example"
+template="${script_directory}/../targets/${target}/.env.example"
 configuration_directory="${root_directory%/}/etc/scrap-monitoring"
 environment_file="${configuration_directory}/${target}.env"
 owner_options=()
@@ -113,14 +110,14 @@ if [[ -e "${environment_file}" || -L "${environment_file}" ]]; then
     printf '%s\n' 'environment file must be root:scrap-admin' >&2
     exit 1
   fi
-  "${script_directory}/validate-environment" "${target}" "${scenario}" "${environment_file}"
+  "${script_directory}/validate-environment" "${target}" "${environment_file}"
   printf '%s\n' "existing environment preserved: ${environment_file}"
   exit 0
 fi
 
 temporary_file="$(mktemp "${configuration_directory}/.${target}.env.XXXXXX")"
 install "${owner_options[@]}" -m 0640 -- "${template}" "${temporary_file}"
-"${script_directory}/validate-environment" "${target}" "${scenario}" "${temporary_file}"
+"${script_directory}/validate-environment" "${target}" "${temporary_file}"
 mv --no-clobber --no-target-directory -- "${temporary_file}" "${environment_file}"
 if [[ -e "${temporary_file}" ]]; then
   printf '%s\n' 'environment appeared during installation; existing file preserved' >&2

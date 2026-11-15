@@ -20,7 +20,11 @@ ENVIRONMENT = {
     "SITE_ID": "example-site",
     "EDGE_ID": "example-edge",
     "CONFIG_REVISION": "example-config-r1",
+    "LIDAR_A_SENSOR_ID": "lidar-a",
+    "LIDAR_B_SENSOR_ID": "lidar-b",
     "BACKEND_ORIGIN": "https://monitoring.example.invalid",
+    "CALIBRATION_API_HOST": "127.0.0.1",
+    "CALIBRATION_API_PORT": "8765",
 }
 
 
@@ -45,6 +49,36 @@ class EdgeConfigurationTest(unittest.TestCase):
             del document[key]
             with self.subTest(missing=key), self.assertRaises(ValueError):
                 validate_runtime(document, ENVIRONMENT)
+
+    def test_calibration_settings_must_match_compose_and_environment(self):
+        cases = {
+            "wildcard": ("calibration_api", {"host": "0.0.0.0"}),
+            "public": ("calibration_api", {"host": "198.51.100.7"}),
+            "port": ("calibration_api", {"port": 9000}),
+            "token": ("calibration_api", {"token_file": "/run/secrets/edge_token"}),
+        }
+        for label, (key, change) in cases.items():
+            document = runtime_document()
+            document[key] = {**document[key], **change}
+            with self.subTest(label), self.assertRaises(ValueError):
+                validate_runtime(document, ENVIRONMENT)
+        for key, value in (
+            ("control_dir", "/data/outbox/control"),
+            ("configuration_state_file", "/control/other.json"),
+            ("driver_config_revision", "other"),
+        ):
+            document = runtime_document()
+            document[key] = value
+            with self.subTest(key), self.assertRaises(ValueError):
+                validate_runtime(document, ENVIRONMENT)
+
+    def test_accepts_loopback_and_tailscale_hosts(self):
+        for host in ("127.0.0.1", "::1", "100.64.0.1", "fd7a:115c:a1e0::1"):
+            document = runtime_document()
+            document["calibration_api"]["host"] = host
+            environment = {**ENVIRONMENT, "CALIBRATION_API_HOST": host}
+            with self.subTest(host=host):
+                validate_runtime(document, environment)
 
     def test_rejects_registration_identity_and_schema_mismatch(self):
         for key, value in (
@@ -181,7 +215,7 @@ class EdgeConfigurationTest(unittest.TestCase):
             environment = root / "edge.env"
             config = root / "config.json"
             environment.write_text(
-                (REPOSITORY / "targets/edge/hardware/.env.example")
+                (REPOSITORY / "targets/edge/.env.example")
                 .read_text()
                 .replace(
                     "CONFIG_FILE=/opt/ajin/config/edge-v2.runtime.json",

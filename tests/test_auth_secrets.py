@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -30,11 +29,21 @@ def run(
 class AuthenticationSecretTest(unittest.TestCase):
     def generate(self, root: Path, name: str, kind: str, identity: str) -> Path:
         bundle = root / name
-        result = run(GENERATE, kind, identity, bundle)
+        options: list[str] = []
+        if kind == "edge-backend":
+            options = [
+                "--site-id",
+                "site-01",
+                "--sensor-id",
+                "lidar-a",
+                "--sensor-id",
+                "lidar-b",
+            ]
+        result = run(GENERATE, *options, kind, identity, bundle)
         self.assertEqual(0, result.returncode, result.stderr)
         return bundle
 
-    def test_bootstrap_installs_raw_client_tokens_and_server_digests(self) -> None:
+    def test_bootstrap_installs_raw_tokens_in_component_formats(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             target_root = workspace / "target"
@@ -53,10 +62,28 @@ class AuthenticationSecretTest(unittest.TestCase):
             self.assertNotEqual(edge_token, camera_token)
             self.assertEqual(0o600, os.stat(edge_bundle / "token").st_mode & 0o777)
 
+            control_bundle = self.generate(
+                workspace, "control-bundle", "edge-control", "edge-01"
+            )
+            control_token = (control_bundle / "token").read_bytes()
+            self.assertNotIn(control_token, (edge_token, camera_token))
             for bundle in (edge_bundle, camera_bundle):
                 for target in ("server", "edge"):
                     result = run(INSTALL, "--root", target_root, target, bundle)
                     self.assertEqual(0, result.returncode, result.stderr)
+            installed_control = run(
+                INSTALL, "--root", target_root, "edge", control_bundle
+            )
+            self.assertEqual(0, installed_control.returncode, installed_control.stderr)
+            self.assertEqual(
+                control_token,
+                (target_root / "opt/ajin/secrets/calibration-api-token").read_bytes(),
+            )
+            for refused in (
+                run(INSTALL, "--root", target_root, "server", control_bundle),
+                run(RETIRE, "--root", target_root, control_bundle),
+            ):
+                self.assertNotEqual(0, refused.returncode)
 
             environment = workspace / "edge.env"
             environment.write_text(
@@ -67,25 +94,42 @@ class AuthenticationSecretTest(unittest.TestCase):
             self.assertEqual(0, edge_validation.returncode, edge_validation.stderr)
             self.assertEqual(0, server_validation.returncode, server_validation.stderr)
 
-            edge_registry_path = (
-                target_root
-                / "srv/scrap-monitoring/secrets/backend/edge-token-digests.json"
+            backend_path = (
+                target_root / "srv/scrap-monitoring/secrets/backend/edge-v2-devices.env"
             )
-            edge_registry_text = edge_registry_path.read_text(encoding="utf-8")
-            edge_registry = json.loads(edge_registry_text)
-            expected_digest = hashlib.sha256(edge_token).hexdigest()
-            self.assertEqual([expected_digest], edge_registry["identities"]["edge-01"])
-            self.assertNotIn(edge_token.decode(), edge_registry_text)
+            media_path = (
+                target_root / "srv/scrap-monitoring/secrets/media/edge-auth.env"
+            )
+            backend_text = backend_path.read_text(encoding="utf-8")
+            prefix = "EDGE_V2_DEVICES='"
+            self.assertTrue(backend_text.startswith(prefix))
+            devices = json.loads(backend_text.removeprefix(prefix).rstrip("\n'"))
+            self.assertEqual(
+                [
+                    {
+                        "site_id": "site-01",
+                        "edge_id": "edge-01",
+                        "sensor_ids": ["lidar-a", "lidar-b"],
+                        "token": edge_token.decode(),
+                    }
+                ],
+                devices,
+            )
+            media_text = media_path.read_text(encoding="utf-8")
+            media = json.loads(
+                media_text.removeprefix("EDGE_AUTH_SECRET='").rstrip("\n'")
+            )
+            self.assertEqual({"camera-01": camera_token.decode()}, media)
             for path in (
                 target_root / "opt/ajin/secrets/edge-token",
                 target_root / "opt/ajin/secrets/camera-token",
-                edge_registry_path,
-                target_root
-                / "srv/scrap-monitoring/secrets/media/camera-token-digests.json",
             ):
                 with self.subTest(path=path):
                     self.assertEqual(0o640, path.stat().st_mode & 0o7777)
                     self.assertEqual(target_root.stat().st_gid, path.stat().st_gid)
+            for path in (backend_path, media_path):
+                with self.subTest(path=path):
+                    self.assertEqual(0o600, path.stat().st_mode & 0o7777)
                     self.assertEqual(0o700, path.parent.stat().st_mode & 0o7777)
                     self.assertEqual(
                         0o600,
@@ -99,7 +143,7 @@ class AuthenticationSecretTest(unittest.TestCase):
                 & 0o7777,
             )
 
-    def test_rotation_overlaps_server_digests_then_retires_old_digest(self) -> None:
+    def test_backend_rotation_overlaps_tokens_then_retires_old_token(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             target_root = workspace / "target"
@@ -115,66 +159,80 @@ class AuthenticationSecretTest(unittest.TestCase):
             )
 
             initial = run(INSTALL, "--root", target_root, "server", old_bundle)
-            edge_initial = run(INSTALL, "--root", target_root, "edge", old_bundle)
             duplicate = run(INSTALL, "--root", target_root, "server", old_bundle)
             refused = run(INSTALL, "--root", target_root, "server", new_bundle)
             rotated = run(
-                INSTALL,
-                "--root",
-                target_root,
-                "--rotate",
-                "server",
-                new_bundle,
+                INSTALL, "--root", target_root, "--rotate", "server", new_bundle
             )
             self.assertEqual(0, initial.returncode, initial.stderr)
-            self.assertEqual(0, edge_initial.returncode, edge_initial.stderr)
             self.assertEqual(0, duplicate.returncode, duplicate.stderr)
             self.assertNotEqual(0, refused.returncode)
             self.assertEqual(0, rotated.returncode, rotated.stderr)
 
             third_refused = run(
-                INSTALL,
-                "--root",
-                target_root,
-                "--rotate",
-                "server",
-                third_bundle,
+                INSTALL, "--root", target_root, "--rotate", "server", third_bundle
             )
             self.assertNotEqual(0, third_refused.returncode)
 
-            registry_path = (
-                target_root
-                / "srv/scrap-monitoring/secrets/backend/edge-token-digests.json"
+            path = (
+                target_root / "srv/scrap-monitoring/secrets/backend/edge-v2-devices.env"
             )
-            registry = json.loads(registry_path.read_text(encoding="utf-8"))
-            self.assertEqual(2, len(registry["identities"]["edge-01"]))
-
-            edge_rotated = run(
-                INSTALL,
-                "--root",
-                target_root,
-                "--rotate",
-                "edge",
-                new_bundle,
-            )
-            self.assertEqual(0, edge_rotated.returncode, edge_rotated.stderr)
+            devices = self.backend_devices(path)
             self.assertEqual(
-                (new_bundle / "token").read_bytes(),
-                (target_root / "opt/ajin/secrets/edge-token").read_bytes(),
+                [
+                    (old_bundle / "token").read_text(),
+                    (new_bundle / "token").read_text(),
+                ],
+                [device["token"] for device in devices],
             )
 
             retired = run(RETIRE, "--root", target_root, old_bundle)
             repeated = run(RETIRE, "--root", target_root, old_bundle)
             self.assertEqual(0, retired.returncode, retired.stderr)
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-
-            registry = json.loads(registry_path.read_text(encoding="utf-8"))
-            new_digest = hashlib.sha256((new_bundle / "token").read_bytes()).hexdigest()
-            self.assertEqual([new_digest], registry["identities"]["edge-01"])
-            self.assertEqual(0o640, registry_path.stat().st_mode & 0o7777)
+            devices = self.backend_devices(path)
+            self.assertEqual(
+                [(new_bundle / "token").read_text()],
+                [device["token"] for device in devices],
+            )
+            self.assertEqual(0o600, path.stat().st_mode & 0o7777)
 
             only_active = run(RETIRE, "--root", target_root, new_bundle)
             self.assertNotEqual(0, only_active.returncode)
+
+    def test_media_rotation_replaces_token_without_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            target_root = workspace / "target"
+            target_root.mkdir()
+            old_bundle = self.generate(workspace, "old", "camera-media", "camera-01")
+            new_bundle = self.generate(workspace, "new", "camera-media", "camera-01")
+            path = target_root / "srv/scrap-monitoring/secrets/media/edge-auth.env"
+
+            initial = run(INSTALL, "--root", target_root, "server", old_bundle)
+            refused = run(INSTALL, "--root", target_root, "server", new_bundle)
+            rotated = run(
+                INSTALL, "--root", target_root, "--rotate", "server", new_bundle
+            )
+            self.assertEqual(0, initial.returncode, initial.stderr)
+            self.assertNotEqual(0, refused.returncode)
+            self.assertEqual(0, rotated.returncode, rotated.stderr)
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(
+                {"camera-01": (new_bundle / "token").read_text()},
+                json.loads(text.removeprefix("EDGE_AUTH_SECRET='").rstrip("\n'")),
+            )
+            self.assertNotIn((old_bundle / "token").read_text(), text)
+
+            active = run(RETIRE, "--root", target_root, new_bundle)
+            retired_old = run(RETIRE, "--root", target_root, old_bundle)
+            self.assertNotEqual(0, active.returncode)
+            self.assertEqual(0, retired_old.returncode, retired_old.stderr)
+
+    @staticmethod
+    def backend_devices(path: Path) -> list[dict[str, object]]:
+        text = path.read_text(encoding="utf-8")
+        return json.loads(text.removeprefix("EDGE_V2_DEVICES='").rstrip("\n'"))
 
     def test_explicit_rotation_retry_repairs_metadata_without_replacing_token(
         self,
@@ -277,7 +335,7 @@ class AuthenticationSecretTest(unittest.TestCase):
                 ("edge", "opt/ajin/secrets/edge-token"),
                 (
                     "server",
-                    "srv/scrap-monitoring/secrets/backend/edge-token-digests.json",
+                    "srv/scrap-monitoring/secrets/backend/edge-v2-devices.env",
                 ),
             ):
                 with self.subTest(target=target):
@@ -286,12 +344,16 @@ class AuthenticationSecretTest(unittest.TestCase):
                     path = target_root / relative
                     original = path.read_bytes()
                     inode = path.stat().st_ino
-                    path.chmod(0o600)
+                    if target == "edge":
+                        path.chmod(0o600)
                     repeated = run(INSTALL, "--root", target_root, target, bundle)
                     self.assertEqual(0, repeated.returncode, repeated.stderr)
                     self.assertEqual(original, path.read_bytes())
                     self.assertEqual(inode, path.stat().st_ino)
-                    self.assertEqual(0o640, path.stat().st_mode & 0o7777)
+                    self.assertEqual(
+                        0o600 if target == "server" else 0o640,
+                        path.stat().st_mode & 0o7777,
+                    )
 
     def test_validation_rejects_incorrect_application_and_private_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -301,6 +363,7 @@ class AuthenticationSecretTest(unittest.TestCase):
             for kind, identity in (
                 ("edge-backend", "edge-01"),
                 ("camera-media", "camera-01"),
+                ("edge-control", "edge-01"),
             ):
                 bundle = self.generate(workspace, kind, kind, identity)
                 installed = run(INSTALL, "--root", target_root, "edge", bundle)
@@ -343,7 +406,7 @@ class AuthenticationSecretTest(unittest.TestCase):
                     ("server", "srv/scrap-monitoring/secrets/backend", True),
                     (
                         "server",
-                        "srv/scrap-monitoring/secrets/backend/edge-token-digests.json",
+                        "srv/scrap-monitoring/secrets/backend/edge-v2-devices.env",
                         False,
                     ),
                     (

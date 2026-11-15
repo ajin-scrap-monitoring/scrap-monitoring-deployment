@@ -58,12 +58,12 @@ Release 작업자는 다음 항목을 확정한다.
 | 통합 버전 | `vMAJOR.MINOR.PATCH` 형식의 Release tag |
 | 기준 commit | 원격 `main` 이력에 포함된 검증 완료 commit |
 | Manifest | `release/manifests/<version>.json`의 통합 버전과 일치하는 Release manifest |
-| 시나리오별 Edge image 집합 | `hardware`와 `simulation`의 `linux/arm64` digest 고정 image |
-| 시나리오별 Server image 집합 | `hardware`와 `simulation`의 `linux/amd64` digest 고정 image |
+| Edge image 집합 | `linux/arm64` digest 고정 image |
+| Server image 집합 | `linux/amd64` digest 고정 image와 PostgreSQL 및 `step-ca` third-party image |
 | 외부 고지 | 포함한 image와 도구에 필요한 license 및 notice |
 
-Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release 생성을 중단한다. 하나의 대상과
-시나리오에 필요한 image가 누락되면 해당 Release의 Online Package와 Offline Bundle을 게시하지 않는다.
+Manifest의 통합 버전, tag와 asset 이름의 버전이 다르면 Release 생성을 중단한다. 하나의 대상에
+필요한 image가 누락되면 해당 Release의 Online Package와 Offline Bundle을 게시하지 않는다.
 Release workflow는 Public Package만 허용한다. Private Package는 예외 승인, 읽기 전용 자격 증명과
 workflow 인증 입력이 모두 구성되기 전까지 게시 가능한 Manifest에서 거부한다.
 
@@ -107,21 +107,25 @@ Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상�
 
 ## Release 생성
 
-Release Package descriptor의 필드는 8개다.
+Release manifest의 component 항목은 `imageProvider`(`component-release` 기본값 또는
+`deployment-build`)를 가질 수 있다. `deployment-build` 항목은 `version`을 가지지 않고
+`ghcr.io/ajin-scrap-monitoring/scrap-monitoring-deployment/` 경로의 image를 사용하며, `sourceRepository`와
+`sourceRevision`은 component의 값을 유지한다. Dashboard는 Nginx asset 취득을 위해 `component-release`여야 한다.
+
+Release Package descriptor의 필드는 7개다.
 
 | 필드 | 내용 |
 | --- | --- |
 | `schemaVersion` | Package schema version |
 | `version` | 통합 Release version |
 | `target` | `edge` 또는 `server` |
-| `scenario` | `hardware` 또는 `simulation` |
 | `mode` | `online` 또는 `offline` |
 | `platform` | `linux/arm64` 또는 `linux/amd64` |
 | `manifestSha256` | Package 내 Release manifest의 SHA-256 digest |
 | `imageArchive` | Offline Bundle의 대상별 image archive 경로 |
 
 `imageArchive`는 Offline Bundle에만 포함한다. Edge는 `linux/arm64`, Server는
-`linux/amd64`만 허용하며 descriptor와 Manifest의 version, target, scenario, platform과 digest가
+`linux/amd64`만 허용하며 descriptor와 Manifest의 version, target, platform과 digest가
 일치해야 한다.
 
 Package payload 영역은 8개다.
@@ -147,10 +151,10 @@ Release 생성은 다음 9단계를 제공한다.
 2. Manifest schema, Manifest version의 tag 일치와 대상별 component 존재를 확인한다.
 3. 대상별 Compose가 서비스를 가지며 각 service image가 Manifest에서 생성한 image 변수와 정확히
    일치하는지 확인한다.
-4. Manifest가 참조한 모든 시나리오별 image를 digest와 대상 platform으로 검증한다.
-5. 대상과 시나리오별 image archive 4개를 생성한다.
-6. 같은 Manifest와 대상별 시나리오 목표 상태를 사용하여 Online Package 4개와 Offline Bundle 4개를 생성한다.
-7. 생성한 8개 asset과 SHA-256 checksum manifest의 파일 집합 및 내용을 독립적으로 검증한다.
+4. Manifest가 참조한 모든 image를 digest와 대상 platform으로 검증한다.
+5. 대상별 image archive 2개를 생성한다.
+6. 같은 Manifest와 대상별 목표 상태를 사용하여 Online Package 2개와 Offline Bundle 2개를 생성한다.
+7. 생성한 4개 Package와 SHA-256 checksum manifest의 5개 asset과 SHA-256 checksum manifest의 파일 집합 및 내용을 독립적으로 검증한다.
 8. 읽기 전용 build job이 검증한 asset을 GitHub Actions artifact로 전달한다.
 9. 쓰기 권한을 가진 publish job이 전체 asset을 Draft Release에 첨부하고 집합을 재검증한 뒤 게시한다.
 
@@ -163,18 +167,22 @@ Release 생성은 다음 9단계를 제공한다.
 
 ### 애플리케이션 인증 token
 
-애플리케이션 인증 token은 2종이다.
+애플리케이션 인증 token은 3종이다.
 
 | 인증 경계 | 식별 단위 | 요청 형식 |
 | --- | --- | --- |
 | Edge Platform에서 Backend | Edge | `Authorization: Bearer <edge-token>` |
 | Camera Edge에서 Camera Media Service | Camera | `Authorization: Bearer <camera-token>` |
+| Backend에서 Edge 제어 API | Edge | `Authorization: Bearer <control-token>`, Edge에만 설치 |
 
-두 token은 서로 다른 권한과 rotation 범위를 가지며 값을 재사용하지 않는다. 배포 도구는
+세 token은 서로 다른 권한과 rotation 범위를 가지며 값을 재사용하지 않는다. 배포 도구는
 credential Bootstrap 또는 명시적인 rotation에서 token을 생성하고 양쪽 대상의 Git 외부 secret
-저장소에 Client 원문과 Server digest를 설치한다. Credential Bootstrap은 장비 식별자를 확정한 뒤
+저장소에 설치한다. Edge에는 Client 원문 token 파일을, Server에는 Component가 읽는 원문 token
+형식을 설치한다. Backend는 `EDGE_V2_DEVICES` JSON 배열(site_id, edge_id, sensor_ids, token)을,
+Camera Media Service는 `EDGE_AUTH_SECRET` JSON 객체(camera_id에서 token)를 환경변수로 읽는다.
+Rotation 절차는 `configuration-management.md`를 따른다. Credential Bootstrap은 장비 식별자를 확정한 뒤
 최초 Compose 시작 전에 수행한다. 일반 Release 적용은 기존 token을 생성하거나 교체하지 않고
-파일 형식, 식별자, digest와 권한을 검증한다. 정확한 파일 경로와 수명 주기는
+파일 형식, 식별자와 권한을 검증한다. 정확한 파일 경로와 수명 주기는
 `configuration-management.md`를 따른다.
 
 최초 구축 순서는 5단계다.
@@ -191,9 +199,9 @@ Root CA와 애플리케이션 token의 교체는 일반 Release 배포와 분리
 
 ### Outbound Pull
 
-1. 대상, 시나리오와 통합 버전을 입력받는다.
-2. GitHub Release에서 대상과 시나리오별 Online Package와 checksum manifest를 취득한다.
-3. Manifest가 참조한 대상과 시나리오의 platform별 image를 GHCR에서 digest로 취득한다.
+1. 대상과 통합 버전을 입력받는다.
+2. GitHub Release에서 대상별 Online Package와 checksum manifest를 취득한다.
+3. Manifest가 참조한 대상의 platform별 image를 GHCR에서 digest로 취득한다.
 4. 공통 검증과 적용 절차에 package와 image를 전달한다.
 
 Online 취득 도구는 `ajin-scrap-monitoring/scrap-monitoring-deployment`의 HTTPS Release
@@ -202,9 +210,9 @@ checksum이 모두 취득되고 검증을 통과한 후에만 출력 디렉토�
 
 ### Offline Bundle
 
-1. Release workflow가 외부 연결 가능한 환경에서 대상과 시나리오별 image를 digest로 취득한다.
-2. `release/build-assets`가 대상과 시나리오별 배포 파일과 image archive를 Offline Bundle로 생성한다.
-3. Release 작업자가 통합 버전, 대상, 시나리오와 checksum을 확인한다.
+1. Release workflow가 외부 연결 가능한 환경에서 대상별 image를 digest로 취득한다.
+2. `release/build-assets`가 대상별 배포 파일과 image archive를 Offline Bundle로 생성한다.
+3. Release 작업자가 통합 버전, 대상과 checksum을 확인한다.
 4. Bundle과 checksum manifest를 이동식 매체로 대상 환경에 반입한다.
 5. 대상 환경에서 checksum을 검증한 뒤 image archive를 Container runtime에 import한다.
 6. 공통 검증과 적용 절차에 Bundle을 전달한다.
@@ -215,10 +223,10 @@ Load 후 Manifest가 참조한 모든 image digest의 local 존재와 대상 pla
 
 ### 공통 검증과 적용
 
-1. Asset checksum, Manifest schema, 통합 버전, 대상, 시나리오와 architecture를 확인한다.
+1. Asset checksum, Manifest schema, 통합 버전, 대상과 architecture를 확인한다.
 2. 대상별 실제 설정, host storage, 장치, network, 인증 파일과 PKI 선행 조건을 확인한다.
 3. 취득 전용 도구와 Offline image archive를 제외한 실행 payload를
-   `/srv/scrap-monitoring/deployment/versions/<version>-<scenario>`에 staging하고 내용 digest를 고정한다.
+   `/srv/scrap-monitoring/deployment/versions/<version>`에 staging하고 내용 digest를 고정한다.
 4. Docker Compose 구성을 검증하고 필요한 Server 인증서 상태를 준비한다.
 5. 기존 `current`를 `previous`로 보존하고 `current` symlink를 새 version으로 전환한 뒤 대상별
    systemd unit을 시작하거나 재시작한다.
@@ -227,12 +235,11 @@ Load 후 Manifest가 참조한 모든 image digest의 local 존재와 대상 pla
    확인한 뒤 외부 HTTPS 또는 WebSocket Secure (WSS) 연결을 확인한다.
 7. 적용 확인이 실패하면 이전 `current` version과 이전 인증서 상태로 복구하고 실패를 반환한다.
 
-배포 갱신은 Git 외부의 환경 설정과 영속 데이터를 덮어쓰거나 삭제하지 않는다. 같은 통합 버전과
-시나리오의 재적용은 같은 목표 상태를 만들고 불필요한 CA, key와 영속 상태를 다시 생성하지 않는다.
+배포 갱신은 Git 외부의 환경 설정과 영속 데이터를 덮어쓰거나 삭제하지 않는다. 같은 통합 버전의 재적용은 같은 목표 상태를 만들고 불필요한 CA, key와 영속 상태를 다시 생성하지 않는다.
 
 Asset 검증은 checksum manifest의 중복과 비정상 항목, Package checksum 불일치, archive의
 절대 경로, 상위 경로, 중복 경로, symbolic link, 비정규화 metadata와 allowlist 외부
-파일을 거부한다. Package descriptor와 Manifest의 version, target, scenario, platform과 Manifest
+파일을 거부한다. Package descriptor와 Manifest의 version, target, platform과 Manifest
 digest를 서로 비교한다.
 
 배포 상태 경로는 6개다.
@@ -247,7 +254,7 @@ digest를 서로 비교한다.
 | 배포 lock | `/run/lock/scrap-monitoring-deployment.lock` |
 
 `current`와 `previous`는 `versions` 아래의 검증된 직접 하위 경로만 가리킨다. Version의
-`deployment-metadata.json`은 version, target, scenario, platform, Manifest digest와 실행 payload digest를
+`deployment-metadata.json`은 version, target, platform, Manifest digest와 실행 payload digest를
 기록한다. 대상 적용 상태에는 secret 값과 환경설정 값을 기록하지 않고 schema version, 요청
 version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 
@@ -259,29 +266,29 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | --- | --- | --- |
 | `release/validate-manifest` | 통합 버전과 version manifest | Schema, version과 대상별 component 존재 확인 |
 | `release/validate-targets` | 검증된 Manifest와 대상별 Compose | 서비스 존재와 Manifest image 변수의 완전한 일치 |
-| `release/pull-images` | 검증된 manifest와 출력 경로 | 대상과 시나리오별 platform digest 고정 image archive 4개 생성 |
-| `release/build-assets` | Manifest와 대상과 시나리오별 image archive | 대상과 시나리오별 package 8개와 checksum manifest 생성 |
-| `release/verify-assets` | 통합 버전과 asset 디렉토리 | Package 8개와 checksum의 정확한 집합 및 독립 검증 |
+| `release/pull-images` | 검증된 manifest와 출력 경로 | 대상별 platform digest 고정 image archive 2개 생성 |
+| `release/build-assets` | Manifest와 대상별 image archive | 대상별 package 4개와 checksum manifest 생성 |
+| `release/verify-assets` | 통합 버전과 asset 디렉토리 | Package 4개와 checksum의 정확한 집합 및 독립 검증 |
 
 ### Delivery
 
 | 실행 파일 | 입력 | 성공 조건 |
 | --- | --- | --- |
-| `delivery/online/fetch-release` | `--version`, `--target`, `--scenario`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
+| `delivery/online/fetch-release` | `--version`, `--target`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
 | `delivery/install-container-runtime` | `--target {edge,server}` | `scrap-admin` 시스템 그룹, 공통 배포 도구와 고정 Container runtime 설치 및 version 검증, Server의 고정 PKI 도구 설치와 version 검증 |
-| `delivery/install-environment` | `--target {edge,server}`, 선택적 `--scenario {hardware,simulation}`, 시험용 `--root` | 환경 template 최초 설치 또는 기존 파일 보존, 권한과 schema 검증 |
+| `delivery/install-environment` | `--target {edge,server}`, 시험용 `--root` | 환경 template 최초 설치 또는 기존 파일 보존, 권한과 schema 검증 |
 | `delivery/install-dashboard-configuration` | `--pit-id`, `--camera-id`, 시험용 `--root` | Server runtime JSON 최초 설치 또는 동일 식별자의 기존 파일 보존, JSON과 권한 검증 |
 | `delivery/validate-dashboard-configuration` | 선택적 `--expected-pit-id`, `--expected-camera-id`, 시험용 `--root` | 설치한 runtime JSON의 필드, 식별자, 파일 권한과 expected 입력 일치 검증 |
-| `delivery/quick-start` | `--version`, `--target`, 선택적 `--scenario`, `--output` | Online Package 취득, 적용과 systemd active 상태 확인 |
-| `delivery/offline/import-bundle` | `--version`, `--target`, `--scenario`, `--bundle`, `--checksums` | 검증된 대상과 시나리오 image의 local import |
-| `delivery/verify-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums` | checksum, archive, Manifest와 대상과 시나리오 검증 |
-| `delivery/generate-auth-secret` | 인증 경계, 식별자와 출력 경로 | 독립적인 256-bit token bundle 생성 |
-| `delivery/install-auth-secret` | 대상과 credential bundle | Edge 원문 token의 파일별 원자적 설치 또는 Server registry의 원자적 전환 |
-| `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 digest 폐기 |
-| `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자, digest와 권한 검증 |
-| `delivery/validate-environment` | 대상, 시나리오와 실제 환경 파일 | Schema version, 변수 집합, 시나리오와 빈 값 검증 |
+| `delivery/quick-start` | `--version`, `--target`, `--output` | Online Package 취득, 적용과 systemd active 상태 확인 |
+| `delivery/offline/import-bundle` | `--version`, `--target`, `--bundle`, `--checksums` | 검증된 대상 image의 local import |
+| `delivery/verify-release` | `--version`, `--target`, `--package`, `--checksums` | checksum, archive, Manifest와 대상 검증 |
+| `delivery/generate-auth-secret` | 인증 경계, 식별자, edge-backend의 `--site-id`와 `--sensor-id` 2개, 출력 경로 | 독립적인 256-bit token bundle 생성 |
+| `delivery/install-auth-secret` | 대상과 credential bundle | Edge 원문 token의 파일별 원자적 설치 또는 Server component 원문 token 파일의 원자적 전환 |
+| `delivery/retire-auth-secret` | 이전 credential bundle | Rotation 확인 후 Server의 이전 token 폐기 |
+| `delivery/validate-auth-secrets` | 대상과 Edge 환경 파일 | 인증 파일 형식, 식별자와 권한 검증 |
+| `delivery/validate-environment` | 대상과 실제 환경 파일 | Schema version, 변수 집합과 빈 값 검증 |
 | `delivery/validate-edge-configuration` | Edge 환경 파일, 시험용 `--root` | v2 runtime의 배포 필드, 식별자, sensor 및 socket 매핑과 HTTPS origin 검증 |
-| `delivery/apply-release` | `--version`, `--target`, `--scenario`, `--package`, `--checksums`, `--mode` | host group ID 파생값 동기화, 재검증, Version staging, 목표 상태 전환과 상태 확인 |
+| `delivery/apply-release` | `--version`, `--target`, `--package`, `--checksums`, `--mode` | host group ID 파생값 동기화, 재검증, Version staging, 목표 상태 전환과 상태 확인 |
 
 모든 실행 파일은 입력 오류, 검증 실패와 미구현 동작에 성공 code를 반환하지 않는다. 실패 메시지는
 실패한 단계와 대상을 식별할 수 있어야 하며 자격 증명과 secret 값을 출력하지 않는다.
@@ -301,18 +308,13 @@ PKI 실행 파일은 Root CA와 Intermediate CA를 새로 Bootstrap하지 않는
 
 ### Edge
 
-Edge 목표 상태는 `linux/arm64` component만 사용한다. source tree는
-`targets/edge/hardware`와 `targets/edge/simulation`으로 나뉘며 Package에는 선택한 시나리오만
+Edge 목표 상태는 `linux/arm64` component만 사용한다. source tree는 `targets/edge`이며 Package는
 `current/targets/edge`로 배치한다. systemd는 Edge 환경 파일과
-`current/targets/edge/compose.yaml`을 사용하여 Compose project를 관리한다. 실제 component service는
-실행 계약이 확인된 뒤에만 각 시나리오 Compose에 추가한다.
-
-hardware Edge는 실제 LiDAR 2개의 site network 주소와 TCP 8089를 각 LiDAR driver에 제공한다.
-simulation Edge는 `LIDAR_A_IP`와 `LIDAR_B_IP`의 Server UDP 8089 endpoint에 실제 RPLIDAR SDK
-driver로 연결한다. 두 IP는 서로 다른 LiDAR endpoint이고 port는 모두 8089다. simulation Edge는
-`CAMERA_DEVICE` V4L2 loopback device를 Camera 입력으로 사용한다. Camera Edge Bridge는
-`SYNTHETIC_CAMERA_SERVER_URL`의 Visualizer WebSocket stream에 outbound로 연결해 해당 device에
-1920 x 1080, 30 Frames Per Second (FPS) Motion JPEG (MJPEG) frame을 기록한다.
+`current/targets/edge/compose.yaml`을 사용하여 Compose project를 관리한다. Compose service는 LiDAR
+Driver 2개, 보정 및 설정 제어 API(`calibration-api`), LiDAR Processing, Measurement Uplink, Edge Orchestrator와
+Camera Edge다. 데이터 서비스 3개는 `calibration-api`가 healthy가 된 뒤 시작한다. Driver는 site
+network의 LiDAR 2개에 TCP 8089로 연결하며 host network를 사용한다. Camera Edge는 `CAMERA_DEVICE`
+V4L2 장치를 Camera 입력으로 사용한다.
 Edge v2는 승인된 runtime JSON을 읽고 driver에 `--schema-version 2.0`을 지정한다. v2의 socket,
 상태와 저장 경로는 기존 v1 경로와 분리하고 기존 환경 파일과 저장소를 자동으로 변환하거나
 덮어쓰지 않는다. 현재 설정 검증의 지원 범위는
@@ -332,31 +334,18 @@ Server 연결 경로는 다음 형식을 사용한다.
 
 ### Server
 
-Server 목표 상태는 `linux/amd64` component만 사용한다. source tree는
-`targets/server/hardware`와 `targets/server/simulation`으로 나뉘며 Package에는 선택한 시나리오만
+Server 목표 상태는 `linux/amd64` component만 사용한다. source tree는 `targets/server`이며 Package는
 `current/targets/server`로 배치한다. systemd는 Server 환경 파일과
-`current/targets/server/compose.yaml`을 사용하여 Compose project를 관리한다. 실제 component service는
-실행 계약이 확인된 뒤에만 각 시나리오 Compose에 추가한다.
-
-simulation Server는 `SIMULATOR_LIDAR_A_IP`와 `SIMULATOR_LIDAR_B_IP`에 각각 UDP 8089를
-공개한다. 두 IP는 같은 Server host에 사전 구성한 서로 다른 address여야 한다. Simulation Server는
-각 IP와 port의 조합에 독립 RPLIDAR S2E protocol endpoint를 bind하고, Visualizer는
-`SIMULATOR_VISUALIZER_BIND_ADDRESS`의 TCP 18000에서 Browser와 Camera Edge Bridge용 WebSocket
-stream을 제공한다. Simulation Server와 Visualizer 사이의 scene stream은 Server Compose network에서만
-연결한다. Visualizer stream은 credential을 포함하지 않는 개발 전용 private network에서만 사용한다.
+`current/targets/server/compose.yaml`을 사용하여 Compose project를 관리한다. Compose service는
+`step-ca`, PostgreSQL, Backend, Camera Media Service와 Dashboard이며 Backend의 migration 확인용
+`manage` service는 `management` profile로 분리한다. Database 네트워크는 internal이고 Backend와
+Camera Media Service의 port는 host 외부에 공개하지 않는다. Camera Media Service는 SD 저장소의
+`MEDIA_EXPECTED_FS_UUID`와 mount witness를 검증하는 Component 계약을 따른다.
 
 TLS 종단은 HTTPS 443에서 Server 인증서 chain을 제공한다. 일반 `/api/` 요청은 Backend로
 전달하고 Camera ingest 경로는 일반 API 규칙보다 먼저 Camera Media Service로 전달한다.
 `Authorization`, `Idempotency-Key`, `Host`, Client 주소와 request ID를 upstream에 유지한다.
 Backend와 Camera Media Service의 내부 port는 host 외부에 공개하지 않는다.
-
-simulation 수락 검사는 5개 경계를 연속으로 확인한다.
-
-1. Simulation Server의 LiDAR별 IP와 UDP 8089에서 RPLIDAR SDK client 2개가 동시에 scan을 수신한다.
-2. Edge Platform이 `LIDAR_A_IP`와 `LIDAR_B_IP`로 두 scan을 처리한다.
-3. Camera Edge Bridge가 Visualizer stream을 V4L2 device에 기록하고 90 frame 검사에 통과한다.
-4. Edge Platform이 Backend와 Camera Media Service의 HTTPS 및 WSS 수신 경계를 통과한다.
-5. Dashboard가 Backend와 Camera Media Service가 제공한 개발용 상태와 영상을 표시한다.
 
 ### Component 연동
 
@@ -386,10 +375,10 @@ session의 역할을 사용하며 Browser의 화면 표시, 요청 본문이나 
 
 | 기능 | viewer | administrator |
 | --- | --- | --- |
-| 모니터링, 영상 및 녹화 조회와 다운로드 | 허용 | 허용 |
+| 모니터링, 영상 및 녹화 조회, 다운로드와 날짜 MP4 준비 | 허용 | 허용 |
 | 알림 조회와 읽음 처리, 로그아웃 | 허용 | 허용 |
 | 관리자 설정과 수신 대상 조회 및 변경, 시험 알림 | 거부 | 허용 |
-| Pit 설정 변경, 수거 완료 확인과 Media 제어 | 거부 | 허용 |
+| Pit 설정 변경, 수거 완료 확인과 녹화 제어(다운로드 준비 제외) | 거부 | 허용 |
 
 Backend는 인증이 없거나 session이 유효하지 않은 요청에 `401`, 필요한 역할이 없거나 CSRF
 token이 유효하지 않은 요청에 `403`을 반환한다. 상태 변경 요청은 해당 session의 `X-CSRF-Token`을
@@ -408,22 +397,26 @@ Dashboard는 모니터링과 영상 요청 전에 `/runtime-config.json`을 읽�
 해당 요청을 시작하지 않고 image build의 기본 식별자로 대체하지 않는다. 설정 파일의 형식과
 소유권은 [docs/configuration-management.md](configuration-management.md)를 따른다.
 
-| 용도 | Browser 경로 | 처리 component |
-| --- | --- | --- |
-| Runtime 설정 | `/runtime-config.json` | Dashboard Nginx |
-| 현재 상태 | `/api/v2/monitoring/snapshot?pit_id=<pit-id>` | Backend |
-| 실시간 상태 | `/api/v2/monitoring/events?pit_id=<pit-id>` | Backend |
-| 녹화 목록과 단건 | `/api/v1/recordings`, `/api/v1/recordings/<recording-id>` | Backend |
-| 실시간 MJPEG | `/media/cameras/<camera-id>/live` | Media의 `/api/v1/cameras/<camera-id>/live` |
-| MP4 재생 | `/media/clips/<clip-id>/content` | Media의 `/api/v1/clips/<clip-id>/content` |
-| MP4 다운로드 | `/media/clips/<clip-id>/content?download=true` | Media의 같은 경로와 query |
+Browser 경로와 Nginx proxy 규칙은 Dashboard Release의 배포 예제(`deployment-example.tar.gz`)를 정본으로 한다.
+`release/fetch-dashboard-assets`가 manifest에 고정한 Dashboard Release version의 asset과 `SHA256SUMS`를
+HTTPS로 취득하고 checksum을 검증한다. `release/build-assets`는 archive의 `deploy/example/nginx` 아래
+`https.conf`, `upstreams/10-dashboard-upstreams.conf`, `runtime/20-dashboard-locations.conf`를 Server
+Package의 `targets/server/dashboard/nginx` 아래에 넣는다. Archive에 절대 경로, `..`, link 또는 누락 파일이
+있거나 checksum이 맞지 않으면 build를 중단한다. Upstream 이름은
+Dashboard가 정한 `scrap-backend:8000`과 `camera-media:8889`이며 Server Compose의 service 이름이
+이와 일치한다. Edge의 Backend 수신 경로와 Camera WebSocket 경로는 이 Repository의
+`targets/server/dashboard/nginx/upstreams/20-edge-ingest-upstreams.conf`와 `runtime/30-edge-ingest-locations.conf`가 추가한다.
 
-녹화 재생과 다운로드 경로는 Backend의 `contentPath`와 `downloadPath`를 사용한다. 외부 origin의
-URL은 허용하지 않는다. Dashboard 식별자와 실행 설정의 소유권은
+이벤트 녹화 경로는 Backend의 `contentPath`와 `downloadPath`, 날짜 녹화 경로는 `playback_path`와
+`download_path`를 사용한다. 외부 origin의 URL은 허용하지 않는다. Dashboard 식별자와 실행 설정의 소유권은
 [docs/configuration-management.md](configuration-management.md)를 따른다.
 
-Nginx는 `/api/` 경로를 Backend에 보존하여 전달하고 `/media/`를 Media의 `/api/v1/`로 변경하며
-query를 유지한다. MJPEG와 Server-Sent Events (SSE)의 buffering 및 cache를 비활성화한다. MJPEG는
+Nginx는 `/api/` 경로를 Backend에 보존하여 전달한다. 실시간과 이벤트 영상의 `/media/`는 Media의
+`/api/v1/`로 변경하며 query를 유지한다. 날짜 영상의 `/media/daily-recordings/`는 Media의
+`/api/v2/daily-recordings/`로 변경하고 다운로드의 `download=true`만 전달한다. HLS 재생 목록 내부의
+조각 URI도 같은 공개 경로로 변경한다. 재생 목록만 전달하고 조각 경로를
+누락해서는 안 된다. 날짜 영상은 GET과 HEAD만 허용하며 준비와 삭제 요청은 Backend를 거친다.
+MJPEG, HLS와 Server-Sent Events (SSE)의 buffering 및 cache를 비활성화한다. MJPEG는
 `multipart/x-mixed-replace`를 유지하고 각 JPEG part의 `Content-Type`과 정확한 `Content-Length`를
 보존한다. MP4의 `Range`, `If-Range`, `206`, `416`, `Content-Range`와 `Content-Disposition`을
 보존한다. Media의 내부 제어 API는 외부에 직접 공개하지 않는다.
@@ -445,9 +438,9 @@ Session 검사는 요청 시작 시 적용하며 이미 열린 MJPEG 연결의 �
 공유 token이 없는 내부 연결, 실제 HTTPS의 Secure session cookie, 영상 접근, Range, timeout과
 연결 종료를 통합 수락 검사에서 확인한다.
 
-Component 이름, image와 실행 계약이 확인되기 전에는 빈 Compose service를 임의의 예제로 채우지
-않는다. 확인한 계약을 반영할 때 공개 설정은 대상별 `.env.example`과 `config`에 기록하고 실제 값은
-host 환경 파일에 둔다.
+Component 계약이 확인되지 않은 항목은 Compose에 추정값으로 채우지 않고
+[docs/implementation.md](implementation.md)의 미확정 구현 결정에 기록한다. 공개 설정은 대상별
+`.env.example`에 기록하고 실제 값은 host 환경 파일에 둔다.
 
 ## 자동 검증
 
@@ -492,8 +485,7 @@ service의 `running` 상태를 확인한다. Health check가 있는 Container는
 sudo tests/validate-test-host \
   --version v1.2.3 \
   --target edge \
-  --scenario hardware \
-  --package /var/tmp/scrap-monitoring-edge-hardware-v1.2.3-online.tar.gz \
+  --package /var/tmp/scrap-monitoring-edge-v1.2.3-online.tar.gz \
   --checksums /var/tmp/SHA256SUMS \
   --mode online \
   --environment-file /etc/scrap-monitoring/edge.env

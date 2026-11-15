@@ -2,12 +2,11 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: validate-test-host --version <version> --target <edge|server> --scenario <hardware|simulation> --package <path> --checksums <path> --mode <online|offline> --environment-file <path>'
+  printf '%s\n' 'Usage: validate-test-host --version <version> --target <edge|server> --package <path> --checksums <path> --mode <online|offline> --environment-file <path>'
 }
 
 version=""
 target=""
-scenario=""
 package=""
 checksums=""
 mode=""
@@ -19,12 +18,11 @@ while [[ "$#" -gt 0 ]]; do
       usage
       exit 0
       ;;
-    --version|--target|--scenario|--package|--checksums|--mode|--environment-file)
+    --version|--target|--package|--checksums|--mode|--environment-file)
       [[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
       case "$1" in
         --version) version="$2" ;;
         --target) target="$2" ;;
-        --scenario) scenario="$2" ;;
         --package) package="$2" ;;
         --checksums) checksums="$2" ;;
         --mode) mode="$2" ;;
@@ -40,13 +38,9 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${version}" || -z "${target}" || -z "${scenario}" || -z "${package}" \
+if [[ -z "${version}" || -z "${target}" || -z "${package}" \
   || -z "${checksums}" || -z "${mode}" || -z "${environment_file}" ]]; then
   usage >&2
-  exit 2
-fi
-if [[ "${scenario}" != "hardware" && "${scenario}" != "simulation" ]]; then
-  printf '%s\n' 'scenario must be hardware or simulation' >&2
   exit 2
 fi
 if [[ "${target}" != "edge" && "${target}" != "server" ]]; then
@@ -111,22 +105,20 @@ repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "${repository}/delivery/apply-release" \
   --version "${version}" \
   --target "${target}" \
-  --scenario "${scenario}" \
   --package "${package}" \
   --checksums "${checksums}" \
   --mode "${mode}" \
   --environment-file "${environment_file}"
 
 deployment_root="/srv/scrap-monitoring/deployment"
-if [[ "$(readlink "${deployment_root}/current")" != "versions/${version}-${scenario}" ]]; then
+if [[ "$(readlink "${deployment_root}/current")" != "versions/${version}" ]]; then
   printf '%s\n' 'current deployment pointer does not match the requested version' >&2
   exit 1
 fi
 if ! jq --exit-status \
   --arg version "${version}" \
   --arg target "${target}" \
-  --arg scenario "${scenario}" \
-  '.schemaVersion == 2 and .version == $version and .target == $target and .scenario == $scenario and .result == "success" and .current == ("versions/" + $version + "-" + $scenario)' \
+  '.schemaVersion == 2 and .version == $version and .target == $target and .result == "success" and .current == ("versions/" + $version)' \
   "${deployment_root}/state/${target}.json" >/dev/null; then
   printf '%s\n' 'deployment state does not report a successful apply' >&2
   exit 1
@@ -163,4 +155,4 @@ if not compose_is_healthy(deployment_root, target, expected_services, environmen
     sys.exit("Compose services are not all running and healthy")
 PYTHON
 
-printf '%s\n' "test host validation passed: ${target} ${scenario} ${version}"
+printf '%s\n' "test host validation passed: ${target} ${version}"

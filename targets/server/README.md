@@ -12,21 +12,24 @@ Server 설정 입력은 3개다.
 | 장비 환경설정 | /etc/scrap-monitoring/server.env | FQDN, listener, host 경로와 Browser origin |
 | 비밀 및 PKI 파일 | /srv/scrap-monitoring | 자격 증명, Server 인증서와 개인키 |
 
-공개 환경설정 schema는 [hardware/.env.example](hardware/.env.example)과
-[simulation/.env.example](simulation/.env.example)을 따른다. 값의 소유권과 동기화는
+공개 환경설정 schema는 [.env.example](.env.example)를 따른다. 값의 소유권과 동기화는
+[docs/configuration-management.md](../../docs/configuration-management.md)를 따른다.
+
+## 구성
+
+`compose.yaml`의 service는 `step-ca`, `postgres`, `scrap-backend`, `camera-media`, `dashboard`와
+`management` profile의 `backend-manage`다. Database network는 internal이다. `dashboard/nginx`의
+Edge ingest용 파일은 이 Repository가 관리하고 나머지 3개 파일은 Release build가 Dashboard Release에서
+취득해 Package에 넣는다.
+Backend와 Media의 secret 입력은 `env_file`로 연결하며 파일 위치는
 [docs/configuration-management.md](../../docs/configuration-management.md)를 따른다.
 
 ## 라우팅 경계
 
 TLS 종단은 Dashboard 정적 파일과 공통 reverse proxy를 제공한다. 일반 Backend API 경로는
-Backend로 전달하고 Camera ingest WebSocket 경로는 Camera Media Service로 전달한다. Camera
-경로는 일반 API 경로보다 먼저 일치해야 한다.
-
-Backend port는 Container network에만 두며 외부 Client는 Server의 HTTPS endpoint를 사용한다.
+Backend로 전달하고 Camera ingest WebSocket 경로는 Camera Media Service로 전달한다.
+Backend와 Media port는 Container network에만 두며 외부 Client는 Server의 HTTPS endpoint를 사용한다.
 
 ## 현재 상태
 
-환경설정 schema, 라우팅 계약과 Compose 시작 전 digest registry 검증이 반영되어 있다.
 Component image와 미완료 계약은 [docs/implementation.md](../../docs/implementation.md)를 따른다.
-배포 적용기는 Manifest 기반 release.env와 Server 인증서를 준비하며
-service별 secret 연결과 실제 Compose service는 구현되지 않았다.

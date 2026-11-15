@@ -17,16 +17,12 @@ class EnvironmentInstallationTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def install(
-        self, target: str = "edge", scenario: str = "hardware"
-    ) -> subprocess.CompletedProcess[str]:
+    def install(self, target: str = "edge") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 str(INSTALL_ENVIRONMENT),
                 "--target",
                 target,
-                "--scenario",
-                scenario,
                 "--root",
                 str(self.host_root),
             ],
@@ -38,23 +34,18 @@ class EnvironmentInstallationTest(unittest.TestCase):
     def environment_file(self, target: str = "edge") -> Path:
         return self.host_root / "etc" / "scrap-monitoring" / f"{target}.env"
 
-    def test_installs_all_target_and_scenario_templates_with_required_modes(
-        self,
-    ) -> None:
+    def test_installs_all_target_templates_with_required_modes(self) -> None:
         for target in ("edge", "server"):
-            for scenario in ("hardware", "simulation"):
-                with self.subTest(target=target, scenario=scenario):
-                    result = self.install(target, scenario)
-                    self.assertEqual(0, result.returncode, result.stderr)
-                    installed = self.environment_file(target)
-                    template = (
-                        REPOSITORY / "targets" / target / scenario / ".env.example"
-                    )
-                    self.assertEqual(template.read_bytes(), installed.read_bytes())
-                    self.assertEqual(0o640, installed.stat().st_mode & 0o777)
-                    self.assertEqual(0o750, installed.parent.stat().st_mode & 0o777)
-                    self.assertIn(str(installed), result.stdout)
-                    installed.unlink()
+            with self.subTest(target=target):
+                result = self.install(target)
+                self.assertEqual(0, result.returncode, result.stderr)
+                installed = self.environment_file(target)
+                template = REPOSITORY / "targets" / target / ".env.example"
+                self.assertEqual(template.read_bytes(), installed.read_bytes())
+                self.assertEqual(0o640, installed.stat().st_mode & 0o777)
+                self.assertEqual(0o750, installed.parent.stat().st_mode & 0o777)
+                self.assertIn(str(installed), result.stdout)
+                installed.unlink()
 
     def test_reinstall_preserves_site_values_and_file_bytes(self) -> None:
         self.assertEqual(0, self.install().returncode)
@@ -72,18 +63,6 @@ class EnvironmentInstallationTest(unittest.TestCase):
         self.assertEqual(original, installed.read_bytes())
         self.assertIn("existing environment preserved", result.stdout)
         self.assertNotIn("custom-site", result.stdout + result.stderr)
-
-    def test_rejects_scenario_change_without_overwriting_existing_environment(
-        self,
-    ) -> None:
-        self.assertEqual(0, self.install().returncode)
-        installed = self.environment_file()
-        original = installed.read_bytes()
-
-        result = self.install(scenario="simulation")
-
-        self.assertNotEqual(0, result.returncode)
-        self.assertEqual(original, installed.read_bytes())
 
     def test_rejects_invalid_existing_schema_without_overwriting_values(self) -> None:
         self.assertEqual(0, self.install().returncode)
@@ -187,7 +166,7 @@ class EnvironmentInstallationTest(unittest.TestCase):
         self.assertEqual(0, self.install().returncode)
         path = self.environment_file()
         original = path.read_text().replace(
-            "ENVIRONMENT_SCHEMA_VERSION=4", "ENVIRONMENT_SCHEMA_VERSION=2"
+            "ENVIRONMENT_SCHEMA_VERSION=6", "ENVIRONMENT_SCHEMA_VERSION=2"
         )
         path.write_text(original)
         before = path.stat().st_ino

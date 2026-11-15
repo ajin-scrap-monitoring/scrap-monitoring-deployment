@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+
+from component_images import default_fetch, load_sources, merge, resolve
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Decide component images and merge CI build results."
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    resolve_parser = commands.add_parser("resolve")
+    resolve_parser.add_argument("--components", default="all")
+    resolve_parser.add_argument("--output", required=True, type=Path)
+    merge_parser = commands.add_parser("merge")
+    merge_parser.add_argument("--resolved", required=True, type=Path)
+    merge_parser.add_argument("--builds", required=True, type=Path)
+    merge_parser.add_argument("--output", required=True, type=Path)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.command == "resolve":
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        document = resolve(load_sources(), default_fetch, token, args.components)
+    else:
+        resolved = json.loads(args.resolved.read_text(encoding="utf-8"))
+        builds = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(args.builds.glob("*.json"))
+        ]
+        document = merge(resolved, builds)
+    args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

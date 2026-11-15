@@ -34,6 +34,9 @@ IMPLEMENTED_ENTRYPOINTS = [
 PYTHON_ENTRYPOINTS = [
     REPOSITORY / "tools" / "check-component-updates",
     REPOSITORY / "release" / "build-assets",
+    REPOSITORY / "release" / "fetch-dashboard-assets",
+    REPOSITORY / "release" / "resolve-components",
+    REPOSITORY / "release" / "update-candidate",
     REPOSITORY / "release" / "validate-manifest",
     REPOSITORY / "release" / "validate-targets",
     REPOSITORY / "release" / "verify-assets",

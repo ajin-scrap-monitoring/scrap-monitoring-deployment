@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from component_images import finalize_blockers, update_candidate
+from dashboard_assets import dashboard_version
+from release_manifest import load_manifest, require_public_packages
+
+DEFAULT_CANDIDATE = Path("release/manifests/candidate.json")
+CANDIDATE_VERSION = "v0.0.0"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Update the candidate manifest or finalize it as a version manifest."
+    )
+    parser.add_argument("--candidate", type=Path, default=DEFAULT_CANDIDATE)
+    parser.add_argument("--results", type=Path, help="component-images.json")
+    parser.add_argument("--finalize", metavar="VERSION")
+    args = parser.parse_args()
+    if bool(args.results) == bool(args.finalize):
+        parser.error("exactly one of --results and --finalize is required")
+    return args
+
+
+def main() -> int:
+    args = parse_args()
+    repository = Path(__file__).resolve().parents[1]
+    candidate = json.loads(args.candidate.read_text(encoding="utf-8"))
+    if args.results:
+        final = json.loads(args.results.read_text(encoding="utf-8"))
+        update_candidate(candidate, final)
+        args.candidate.write_text(
+            json.dumps(candidate, indent=2) + "\n", encoding="utf-8"
+        )
+        print(args.candidate)
+        return 0
+
+    blockers = finalize_blockers(candidate)
+    if blockers:
+        print("\n".join(blockers), file=sys.stderr)
+        return 1
+    target = args.candidate.parent / f"{args.finalize}.json"
+    if target.exists():
+        print(f"version manifest already exists: {target}", file=sys.stderr)
+        return 1
+    candidate["version"] = args.finalize
+    target.write_text(json.dumps(candidate, indent=2) + "\n", encoding="utf-8")
+    try:
+        manifest = load_manifest(
+            repository, target.resolve(), args.finalize, require_components=True
+        )
+        require_public_packages(manifest)
+        dashboard_version(manifest)
+    except Exception:
+        target.unlink()
+        raise
+    print(target)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

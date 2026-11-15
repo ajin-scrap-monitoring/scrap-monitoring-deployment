@@ -1,0 +1,192 @@
+name: Component images
+
+on:
+  workflow_dispatch:
+    inputs:
+      components:
+        description: "Component names separated by commas, or all"
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: component-images
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve component images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has-build: ${{ steps.resolve.outputs.has-build }}
+    env:
+      COMPONENT_SELECTION: ${{ inputs.components }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve component images
+        id: resolve
+        run: |
+          python3 release/resolve-components resolve \
+            --components "${COMPONENT_SELECTION:-all}" \
+            --output resolved-components.json
+          printf 'matrix=%s\n' "$(jq --compact-output '.matrix' resolved-components.json)" \
+            >> "${GITHUB_OUTPUT}"
+          printf 'has-build=%s\n' "$(jq --raw-output '.hasBuild' resolved-components.json)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Store resolution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: resolved-components
+          path: resolved-components.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: resolve
+    if: needs.resolve.outputs.has-build == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    env:
+      COMPONENT_NAME: ${{ matrix.name }}
+      COMPONENT_PLATFORM: ${{ matrix.platform }}
+      COMPONENT_REVISION: ${{ matrix.sourceRevision }}
+      COMPONENT_SOURCE: ${{ matrix.sourceRepository }}
+      BUILD_IMAGE: ${{ matrix.buildImage }}
+
+    steps:
+      - name: Check out component source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ajin-scrap-monitoring/${{ matrix.repository }}
+          ref: ${{ matrix.sourceRevision }}
+          path: source
+          persist-credentials: false
+
+      - name: Verify checked out revision
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "${COMPONENT_REVISION}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        with:
+          context: source/${{ matrix.context }}
+          file: source/${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          tags: ${{ matrix.buildImage }}
+          labels: |
+            org.opencontainers.image.source=${{ matrix.sourceRepository }}
+            org.opencontainers.image.revision=${{ matrix.sourceRevision }}
+            io.ajin.scrap-deployment.build=deployment-ci
+
+      - name: Verify pushed image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          reference="${BUILD_IMAGE%:*}@${DIGEST}"
+          docker pull --platform "${COMPONENT_PLATFORM}" "${reference}"
+          test "$(docker image inspect "${reference}" \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
+            = "${COMPONENT_REVISION}"
+          test "$(docker image inspect "${reference}" \
+            --format '{{index .Config.Labels "io.ajin.scrap-deployment.build"}}')" \
+            = "deployment-ci"
+          test "$(docker image inspect "${reference}" \
+            --format '{{.Os}}/{{.Architecture}}')" = "${COMPONENT_PLATFORM}"
+          jq --null-input --arg name "${COMPONENT_NAME}" --arg image "${reference}" \
+            '{name: $name, image: $image}' > "build-${COMPONENT_NAME}.json"
+
+      - name: Store build result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: build-${{ matrix.name }}
+          path: build-${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  summary:
+    name: Summarize component images
+    needs: [resolve, build]
+    if: >-
+      ${{ !cancelled() && needs.resolve.result == 'success'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download resolution
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: resolved-components
+          path: resolution
+
+      - name: Download build results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: builds
+
+      - name: Merge results
+        run: |
+          mkdir -p builds
+          python3 release/resolve-components merge \
+            --resolved resolution/resolved-components.json \
+            --builds builds \
+            --output component-images.json
+          {
+            printf '%s\n' '| Component | Provider | Source revision | Image |' \
+              '| --- | --- | --- | --- |'
+            jq --raw-output '.components[]
+              | "| \(.name) | \(.imageProvider) | \(.sourceRevision) | \(.image) |"' \
+              component-images.json
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Store component images
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: component-images
+          path: component-images.json
+          if-no-files-found: error
+          retention-days: 30

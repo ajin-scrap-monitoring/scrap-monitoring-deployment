@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import math
 import os
@@ -20,7 +21,32 @@ RUNTIME_FIELDS = {
     "clock_domain_file",
     "backend_origin",
     "token_file",
+    "driver_config_revision",
+    "control_dir",
+    "configuration_state_file",
+    "calibration_api",
 }
+
+
+# In-container paths fixed by targets/edge/compose.yaml.
+CONTAINER_PATHS = {
+    "delivery_endpoint": "unix:/sockets/delivery/measurement.sock",
+    "observation_endpoint": "unix:/sockets/observations/observations.sock",
+    "storage_dir": "/data/outbox",
+    "status_dir": "/status",
+    "token_file": "/run/secrets/edge_token",
+}
+# Tailscale public standard ranges: CGNAT IPv4 and ULA IPv6.
+TAILSCALE_NETWORKS = {
+    4: ipaddress.ip_network("100.64.0.0/10"),
+    6: ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+}
+CONTROL_PATHS = {
+    "control_dir": "/control",
+    "configuration_state_file": "/control/calibration-control.json",
+}
+CALIBRATION_TOKEN_FILE = "/run/secrets/calibration_api_token"
+DRIVER_ENDPOINTS = ("unix:/sockets/a/scan.sock", "unix:/sockets/b/scan.sock")
 
 
 def absolute_path(value: object) -> str:
@@ -87,9 +113,19 @@ def validate_runtime(document: object, environment: dict[str, str]) -> None:
         or len(set(sensor_ids)) != 2
     ):
         raise ValueError("Edge configuration requires distinct sensor identifiers")
+    if sensor_ids != [
+        environment["LIDAR_A_SENSOR_ID"],
+        environment["LIDAR_B_SENSOR_ID"],
+    ]:
+        raise ValueError("Edge configuration does not match LIDAR sensor identifiers")
     drivers = document["drivers"]
     if not isinstance(drivers, dict) or set(drivers) != set(sensor_ids):
         raise ValueError("driver endpoints must match configuration sensor identifiers")
+    if [drivers[sensor] for sensor in sensor_ids] != list(DRIVER_ENDPOINTS):
+        raise ValueError("driver endpoints do not match the Compose mounts")
+    for field, expected in CONTAINER_PATHS.items():
+        if document[field] != expected:
+            raise ValueError(f"Edge runtime {field} does not match the Compose mounts")
     endpoints = [
         document["delivery_endpoint"],
         document["observation_endpoint"],
@@ -117,10 +153,64 @@ def validate_runtime(document: object, environment: dict[str, str]) -> None:
         or statuses in storage.parents
     ):
         raise ValueError("Edge outbox and status directories must not overlap")
+    validate_calibration(document, environment)
     if https_origin(document["backend_origin"]) != https_origin(
         environment["BACKEND_ORIGIN"]
     ):
         raise ValueError("Edge runtime does not match BACKEND_ORIGIN")
+
+
+def calibration_host(value: object) -> str:
+    """Accept loopback or Tailscale addresses; wildcard and public binds are rejected."""
+    try:
+        address = ipaddress.ip_address(value)  # type: ignore[arg-type]
+    except ValueError:
+        raise ValueError("calibration API host must be an IP address") from None
+    if address.is_loopback or address in TAILSCALE_NETWORKS[address.version]:
+        return str(address)
+    raise ValueError("calibration API host must be loopback or a Tailscale address")
+
+
+def validate_calibration(document: dict, environment: dict[str, str]) -> None:
+    if document["driver_config_revision"] != environment["CONFIG_REVISION"]:
+        raise ValueError(
+            "Edge runtime driver_config_revision does not match CONFIG_REVISION"
+        )
+    for field, expected in CONTROL_PATHS.items():
+        if document[field] != expected:
+            raise ValueError(f"Edge runtime {field} does not match the Compose mounts")
+    api = document["calibration_api"]
+    if not isinstance(api, dict) or set(api) != {"host", "port", "token_file"}:
+        raise ValueError(
+            "Edge runtime calibration_api must contain host, port and token_file"
+        )
+    if (
+        api["token_file"] != CALIBRATION_TOKEN_FILE
+        or api["token_file"] == document["token_file"]
+    ):
+        raise ValueError(
+            "Edge runtime calibration token_file does not match the Compose mounts"
+        )
+    if calibration_host(api["host"]) != calibration_host(
+        environment["CALIBRATION_API_HOST"]
+    ):
+        raise ValueError("Edge runtime does not match CALIBRATION_API_HOST")
+    if (
+        not isinstance(api["port"], int)
+        or isinstance(api["port"], bool)
+        or str(api["port"]) != environment["CALIBRATION_API_PORT"]
+        or not 1024 <= api["port"] <= 65535
+    ):
+        raise ValueError("Edge runtime does not match CALIBRATION_API_PORT")
+    outbox, status, control = (
+        PurePosixPath(document[key])
+        for key in ("storage_dir", "status_dir", "control_dir")
+    )
+    for first, second in ((outbox, status), (outbox, control), (status, control)):
+        if first == second or first in second.parents or second in first.parents:
+            raise ValueError(
+                "Edge outbox, status and control directories must not overlap"
+            )
 
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

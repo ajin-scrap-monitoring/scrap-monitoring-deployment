@@ -10,6 +10,9 @@ Release manifest와 asset 생성 및 게시 동작은
 | `package.schema.json` | 대상별 Package descriptor 검증 |
 | `validate-manifest` | 게시 가능한 Manifest와 선택적 Public Package 제한 검증 |
 | `validate-targets` | Manifest image와 대상별 Compose service 교차 검증 |
+| `component-sources.json` | 동기화 대상 component의 출처, build 규칙과 최소 호환 Release |
+| `resolve-components` | 공식 Release image와 통합 배포 CI 빌드 대상 결정, 빌드 결과 병합 |
+| `update-candidate` | candidate manifest 갱신과 version manifest 확정 |
 | `pull-images` | Manifest의 digest 고정 image 취득과 대상별 archive 생성 |
 | `build-assets` | 재현 가능한 Online Package, Offline Bundle과 checksum 생성 |
 | `verify-assets` | 생성된 Package 8개와 checksum 집합의 독립 검증 |

@@ -33,8 +33,13 @@ RUNTIME_EXCLUDED_PREFIXES = ("delivery/online/", "delivery/offline/", "images/")
 RUNTIME_EXCLUDED_FILES = {"delivery/quick-start", "release-package.json"}
 CERTIFICATE_FILES = ("server.crt", "server.key", "server-fullchain.pem")
 HOST_GROUP_VARIABLES = {
-    "edge": ("VIDEO_GID", "video"),
-    "server": ("DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin"),
+    "edge": (
+        ("VIDEO_GID", "video"),
+        ("EDGE_UPLINK_GID", "scrap-edge-uplink"),
+        ("CAMERA_AGENT_GID", "scrap-camera-agent"),
+        ("CALIBRATION_API_GID", "scrap-calibration-api"),
+    ),
+    "server": (("DASHBOARD_SCRAP_ADMIN_GID", "scrap-admin"),),
 }
 
 
@@ -113,7 +118,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apply a verified release package.")
     parser.add_argument("--version", required=True)
     parser.add_argument("--target", choices=sorted(TARGET_PLATFORMS), required=True)
-    parser.add_argument("--scenario", choices=("hardware", "simulation"), required=True)
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--checksums", type=Path, required=True)
     parser.add_argument("--mode", choices=("online", "offline"), required=True)
@@ -279,23 +283,9 @@ def validate_host_platform(target: str, override: str | None = None) -> str:
     return expected
 
 
-def scenario_components(
-    manifest: dict[str, Any], target: str, scenario: str
-) -> list[dict[str, Any]]:
-    components = {
-        component["name"]: component
-        for component in manifest["targets"][target]["components"]
-    }
-    return [
-        components[name] for name in manifest["targets"][target]["scenarios"][scenario]
-    ]
-
-
-def verify_images(
-    manifest: dict[str, Any], target: str, scenario: str, mode: str
-) -> None:
+def verify_images(manifest: dict[str, Any], target: str, mode: str) -> None:
     expected_platform = TARGET_PLATFORMS[target]
-    for component in scenario_components(manifest, target, scenario):
+    for component in manifest["targets"][target]["components"]:
         image = component["image"]
         if mode == "online":
             run_checked(["docker", "pull", "--platform", expected_platform, image])
@@ -336,14 +326,9 @@ def extract_runtime(package: Path, destination: Path) -> None:
             output.chmod(member.mode)
 
 
-def release_variables(
-    manifest: dict[str, Any], target: str, scenario: str
-) -> dict[str, str]:
-    variables = {
-        "DEPLOYMENT_REVISION": manifest["version"],
-        "DEPLOYMENT_SCENARIO": scenario,
-    }
-    for component in scenario_components(manifest, target, scenario):
+def release_variables(manifest: dict[str, Any], target: str) -> dict[str, str]:
+    variables = {"DEPLOYMENT_REVISION": manifest["version"]}
+    for component in manifest["targets"][target]["components"]:
         variable = f"{component['name'].replace('-', '_').upper()}_IMAGE"
         if variable in variables:
             raise ValueError(f"duplicate release environment variable: {variable}")
@@ -410,15 +395,15 @@ def synchronize_host_group_environment(
 ) -> dict[str, str]:
     if host_root != Path("/"):
         return environment
-    variable, group_name = HOST_GROUP_VARIABLES[target]
-    try:
-        group = grp.getgrnam(group_name)
-    except KeyError as error:
-        raise ValueError(f"required host group is missing: {group_name}") from error
-    value = str(group.gr_gid)
-    if environment[variable] != value:
-        replace_environment_value(environment_file, variable, value)
-        environment[variable] = value
+    for variable, group_name in HOST_GROUP_VARIABLES[target]:
+        try:
+            group = grp.getgrnam(group_name)
+        except KeyError as error:
+            raise ValueError(f"required host group is missing: {group_name}") from error
+        value = str(group.gr_gid)
+        if environment[variable] != value:
+            replace_environment_value(environment_file, variable, value)
+            environment[variable] = value
     return environment
 
 
@@ -440,15 +425,12 @@ def create_edge_generated_environment(
 def validate_target_inputs(
     stage: Path,
     target: str,
-    scenario: str,
     environment_file: Path,
     host_root: Path,
 ) -> tuple[dict[str, str], bytes | None]:
     validator = stage / "delivery" / "validate-environment"
-    run_checked([str(validator), target, scenario, str(environment_file)])
+    run_checked([str(validator), target, str(environment_file)])
     environment = parse_environment(environment_file)
-    if environment["DEPLOYMENT_SCENARIO"] != scenario:
-        raise ValueError("target environment scenario does not match the package")
     generated = None
     if target == "edge":
         generated = create_edge_generated_environment(environment, host_root)
@@ -457,6 +439,12 @@ def validate_target_inputs(
             environment["RUNTIME_DIR"],
             directory=True,
             label="Edge runtime",
+        )
+        require_host_path(
+            host_root,
+            environment["CONTROL_DIR"],
+            directory=True,
+            label="Edge control directory",
         )
         camera_device = environment["CAMERA_DEVICE"]
         require_host_path(
@@ -480,18 +468,15 @@ def validate_target_inputs(
                 str(host_root),
             ]
         )
-        require_host_path(
-            host_root,
-            environment["BACKEND_DATA_PATH"],
-            directory=True,
-            label="Backend data",
-        )
-        require_host_path(
-            host_root,
-            environment["MEDIA_STORAGE_PATH"],
-            directory=True,
-            label="Media storage",
-        )
+        for variable, label in (
+            ("POSTGRESQL_INIT_DIRECTORY", "PostgreSQL init files"),
+            ("POSTGRES_DATA_PATH", "PostgreSQL data"),
+            ("MEDIA_STORAGE_PATH", "Media storage"),
+            ("MEDIA_WITNESS_PARENT", "Media mount witness parent"),
+        ):
+            require_host_path(
+                host_root, environment[variable], directory=True, label=label
+            )
     secret_validator = stage / "delivery" / "validate-auth-secrets"
     command = [str(secret_validator), "--root", str(host_root), target]
     if target == "edge":
@@ -557,7 +542,6 @@ def deployment_metadata(
     stage: Path,
     manifest: dict[str, Any],
     target: str,
-    scenario: str,
 ) -> dict[str, Any]:
     manifest_digest = hashlib.sha256(
         (stage / "release-manifest.json").read_bytes()
@@ -566,7 +550,6 @@ def deployment_metadata(
         "schemaVersion": 2,
         "version": manifest["version"],
         "target": target,
-        "scenario": scenario,
         "platform": TARGET_PLATFORMS[target],
         "manifestSha256": manifest_digest,
         "contentSha256": tree_digest(stage),
@@ -666,7 +649,6 @@ def write_state(
     state_directory: Path,
     version: str,
     target: str,
-    scenario: str,
     result: str,
     current: LinkState,
     previous: LinkState,
@@ -675,7 +657,6 @@ def write_state(
         "schemaVersion": 2,
         "version": version,
         "target": target,
-        "scenario": scenario,
         "result": result,
         "current": current.target,
         "previous": previous.target,
@@ -782,17 +763,15 @@ def apply_release(
             if mode != args.mode:
                 raise ValueError(f"package mode does not match requested mode: {mode}")
             validate_host_platform(args.target, host_platform)
-            verify_images(manifest, args.target, args.scenario, mode)
+            verify_images(manifest, args.target, mode)
 
             with tempfile.TemporaryDirectory(
-                prefix=f".{args.version}-{args.scenario}.", dir=versions
+                prefix=f".{args.version}.", dir=versions
             ) as temporary:
                 stage = Path(temporary)
                 stage.chmod(0o755)
                 extract_runtime(stable_args.package, stage)
-                release_environment = release_variables(
-                    manifest, args.target, args.scenario
-                )
+                release_environment = release_variables(manifest, args.target)
                 write_environment(
                     stage / "targets" / args.target / "release.env",
                     release_environment,
@@ -800,7 +779,6 @@ def apply_release(
                 target_environment, generated = validate_target_inputs(
                     stage,
                     args.target,
-                    args.scenario,
                     environment_file,
                     host_root,
                 )
@@ -810,12 +788,10 @@ def apply_release(
                     generated,
                 )
                 services = validate_compose(stage, args.target, command_environment)
-                metadata = deployment_metadata(
-                    stage, manifest, args.target, args.scenario
-                )
+                metadata = deployment_metadata(stage, manifest, args.target)
                 write_metadata(stage, metadata)
 
-                destination = versions / f"{args.version}-{args.scenario}"
+                destination = versions / f"{args.version}"
                 if destination.exists() or destination.is_symlink():
                     validate_existing_version(destination, metadata)
                     runtime = destination
@@ -831,7 +807,7 @@ def apply_release(
                 if runtime == stage:
                     os.replace(stage, destination)
 
-            new_target = f"versions/{args.version}-{args.scenario}"
+            new_target = f"versions/{args.version}"
             generated_changed = False
             if generated is not None:
                 generated_path = state_directory / "edge.generated.env"
@@ -862,7 +838,6 @@ def apply_release(
                         state_directory,
                         args.version,
                         args.target,
-                        args.scenario,
                         "success",
                         original_current,
                         original_previous,
@@ -890,7 +865,6 @@ def apply_release(
                 state_directory,
                 args.version,
                 args.target,
-                args.scenario,
                 "success",
                 current,
                 previous,
@@ -917,7 +891,6 @@ def apply_release(
                 state_directory,
                 args.version,
                 args.target,
-                args.scenario,
                 "failed",
                 original_current,
                 original_previous,

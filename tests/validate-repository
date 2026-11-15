@@ -12,6 +12,7 @@ find release pki/config -type f -name '*.json' -print0 \
   | xargs -0 jq empty
 jq empty .markdownlint.json package.json package-lock.json
 .venv/bin/ruff check \
+  tools/build-component-image \
   tools/check-component-updates \
   delivery/edge_configuration.py \
   delivery/dashboard_configuration.py \
@@ -19,13 +20,19 @@ jq empty .markdownlint.json package.json package-lock.json
   delivery/release_applier.py \
   delivery/release_verifier.py \
   release/build-assets \
+  release/component_images.py \
+  release/dashboard_assets.py \
+  release/fetch-dashboard-assets \
   release/release_manifest.py \
+  release/resolve-components \
   release/target_validation.py \
+  release/update-candidate \
   release/validate-manifest \
   release/validate-targets \
   release/verify-assets \
   tests
 .venv/bin/ruff format --check \
+  tools/build-component-image \
   tools/check-component-updates \
   delivery/edge_configuration.py \
   delivery/dashboard_configuration.py \
@@ -33,23 +40,26 @@ jq empty .markdownlint.json package.json package-lock.json
   delivery/release_applier.py \
   delivery/release_verifier.py \
   release/build-assets \
+  release/component_images.py \
+  release/dashboard_assets.py \
+  release/fetch-dashboard-assets \
   release/release_manifest.py \
+  release/resolve-components \
   release/target_validation.py \
+  release/update-candidate \
   release/validate-manifest \
   release/validate-targets \
   release/verify-assets \
   tests
 go -C tools mod verify
 go -C tools tool actionlint "${repository}"/.github/workflows/*.yml
-for target in edge server; do
-  for scenario in hardware simulation; do
-    docker compose -f "targets/${target}/${scenario}/compose.yaml" config --quiet
-  done
-done
+.venv/bin/python release/validate-targets \
+  --version v0.0.1 --manifest release/manifest.example.json
 shellcheck --source-path=SCRIPTDIR \
   delivery/validate-edge-configuration \
   delivery/apply-release \
   delivery/auth-secret-permissions.sh \
+  delivery/auth-registry.sh \
   delivery/install-container-runtime \
   delivery/install-environment \
   delivery/install-dashboard-configuration \

@@ -4,25 +4,33 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 try:
     from .release_manifest import (
-        SCENARIOS,
         TARGETS,
         release_variables,
-        scenario_components,
+        target_components,
     )
 except ImportError:
     from release_manifest import (
-        SCENARIOS,
         TARGETS,
         release_variables,
-        scenario_components,
+        target_components,
     )
 
 ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# Private env_file inputs of the Server Compose; validation uses empty stand-ins.
+SERVER_PRIVATE_ENV_FILES = (
+    "backend/backend.env",
+    "backend/edge-v2-devices.env",
+    "database/postgres.env",
+    "database/migration.env",
+    "media/media.env",
+    "media/edge-auth.env",
+)
 GENERATED_ENVIRONMENT = {
     "edge": {"CONFIG_SHA256": "0" * 64},
     "server": {},
@@ -58,6 +66,8 @@ def compose_model(
         str(project),
         "--env-file",
         str(project / ".env.example"),
+        "--profile",
+        "*",
         "config",
     ]
     if not interpolate:
@@ -65,52 +75,52 @@ def compose_model(
     command.extend(("--format", "json"))
     process_environment = {"PATH": os.environ.get("PATH", os.defpath)}
     process_environment.update(environment)
-    result = subprocess.run(
-        command,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=process_environment,
-    )
+    with tempfile.TemporaryDirectory(prefix="scrap-secrets-") as secrets:
+        for name in SERVER_PRIVATE_ENV_FILES:
+            path = Path(secrets) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+        process_environment["SCRAP_SECRETS_DIRECTORY"] = secrets
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=process_environment,
+        )
     model = json.loads(result.stdout)
     if not isinstance(model, dict):
         raise TypeError("Compose model is not an object")
     return model
 
 
-def target_services(
-    model: dict[str, Any], target: str, scenario: str
-) -> dict[str, dict[str, Any]]:
+def target_services(model: dict[str, Any], target: str) -> dict[str, dict[str, Any]]:
     services = model.get("services")
     if not isinstance(services, dict) or not services:
-        raise ValueError(f"Compose target has no services: {target} {scenario}")
+        raise ValueError(f"Compose target has no services: {target}")
     if not all(
         isinstance(name, str) and isinstance(value, dict)
         for name, value in services.items()
     ):
-        raise TypeError(f"Compose target has an invalid service: {target} {scenario}")
+        raise TypeError(f"Compose target has an invalid service: {target}")
     return services
 
 
-def validate_target(
-    repository: Path, manifest: dict[str, Any], target: str, scenario: str
-) -> None:
-    project = repository / "targets" / target / scenario
+def validate_target(repository: Path, manifest: dict[str, Any], target: str) -> None:
+    project = repository / "targets" / target
     environment = read_example_environment(project / ".env.example")
-    variables = release_variables(manifest, target, scenario)
+    variables = release_variables(manifest, target)
     environment.update(variables)
     environment.update(GENERATED_ENVIRONMENT[target])
 
     unresolved = target_services(
-        compose_model(project, environment, interpolate=False), target, scenario
+        compose_model(project, environment, interpolate=False), target
     )
     resolved = target_services(
-        compose_model(project, environment, interpolate=True), target, scenario
+        compose_model(project, environment, interpolate=True), target
     )
     if set(unresolved) != set(resolved):
-        raise ValueError(
-            f"Compose service set changed after interpolation: {target} {scenario}"
-        )
+        raise ValueError(f"Compose service set changed after interpolation: {target}")
 
     expected_bindings = {
         f"${{{name}}}": value
@@ -138,20 +148,15 @@ def validate_target(
     missing_bindings = sorted(set(expected_bindings) - used_bindings)
     if missing_bindings:
         raise ValueError(
-            "Manifest image is not used by Compose: "
-            f"{target} {scenario}: {missing_bindings[0]}"
+            f"Manifest image is not used by Compose: {target}: {missing_bindings[0]}"
         )
     expected_images = {
-        component["image"]
-        for component in scenario_components(manifest, target, scenario)
+        component["image"] for component in target_components(manifest, target)
     }
     if resolved_images != expected_images:
-        raise ValueError(
-            f"Compose image set does not match the manifest: {target} {scenario}"
-        )
+        raise ValueError(f"Compose image set does not match the manifest: {target}")
 
 
 def validate_targets(repository: Path, manifest: dict[str, Any]) -> None:
     for target in TARGETS:
-        for scenario in SCENARIOS:
-            validate_target(repository, manifest, target, scenario)
+        validate_target(repository, manifest, target)

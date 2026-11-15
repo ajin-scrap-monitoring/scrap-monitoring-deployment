@@ -23,7 +23,7 @@ SPEC.loader.exec_module(MODULE)
 class ComponentUpdateTest(unittest.TestCase):
     def test_baseline_has_exactly_one_full_matching_source_link(self):
         document = (PATH.parents[1] / "docs/implementation.md").read_text()
-        self.assertEqual(5, len(MODULE.source_revisions(document)))
+        self.assertEqual(4, len(MODULE.source_revisions(document)))
         for content in (document.replace("/tree/", "/commit/"), document + document):
             with self.assertRaises(ValueError):
                 MODULE.source_revisions(content)
@@ -116,7 +116,21 @@ class ComponentUpdateTest(unittest.TestCase):
         self.assertTrue(report[0]["releaseChanged"])
         document = (PATH.parents[1] / "docs/implementation.md").read_text()
         versions = MODULE.release_versions(document)
-        self.assertEqual("v0.2.0", versions["scrap-monitoring-dashboard"])
+        self.assertEqual(set(MODULE.RELEASE_LABELS), set(versions))
+
+    def test_release_parser_does_not_depend_on_current_document_versions(self):
+        document = "\n".join(
+            f"| {label} | "
+            + (
+                "`v12.34.56` Public image"
+                if repository == "scrap-monitoring-dashboard"
+                else "Release image unavailable"
+            )
+            + " | deployment pending |"
+            for repository, label in MODULE.RELEASE_LABELS.items()
+        )
+        versions = MODULE.release_versions(document)
+        self.assertEqual("v12.34.56", versions["scrap-monitoring-dashboard"])
         self.assertIsNone(versions["scrap-monitoring-backend"])
 
 

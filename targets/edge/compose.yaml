@@ -1,0 +1,319 @@
+# Edge v2 target. Commands follow docs/V2_IMPLEMENTATION.md of Edge Platform;
+# the in-container paths below are the values the runtime JSON must use
+# (docs/configuration-management.md).
+name: scrap-monitoring-edge
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-common: &common
+  restart: "on-failure:5"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  init: true
+  stop_grace_period: 20s
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  logging: *logging
+
+x-deployment: &deployment
+  SITE_ID: ${SITE_ID:?}
+  EDGE_ID: ${EDGE_ID:?}
+  CONFIG_REVISION: ${CONFIG_REVISION:?}
+  DEPLOYMENT_REVISION: ${DEPLOYMENT_REVISION:?}
+  CAMERA_ID: ${CAMERA_ID:?}
+  CONFIG_SHA256: ${CONFIG_SHA256:?}
+
+x-runtime-bind: &runtime-bind
+  bind:
+    create_host_path: false
+
+x-root-ca: &root-ca
+  type: bind
+  source: ${EDGE_ROOT_CA_FILE:?}
+  target: /run/scrap-monitoring/pki/root_ca.crt
+  read_only: true
+
+services:
+  lidar-driver-a:
+    <<: *common
+    image: ${AJIN_LIDAR_DRIVER_IMAGE}
+    network_mode: host
+    environment: *deployment
+    command:
+      - --sensor-id
+      - ${LIDAR_A_SENSOR_ID:?}
+      - --edge-id
+      - ${EDGE_ID:?}
+      - --config-revision
+      - ${CONFIG_REVISION:?}
+      - --ip
+      - ${LIDAR_A_IP:?}
+      - --port
+      - "8089"
+      - --schema-version
+      - "2.0"
+      - --endpoint
+      - unix:/sockets/a/scan.sock
+      - --status-dir
+      - /status
+    volumes:
+      - type: bind
+        source: ${RUNTIME_DIR:?}/sockets/a
+        target: /sockets/a
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+
+  lidar-driver-b:
+    <<: *common
+    image: ${AJIN_LIDAR_DRIVER_IMAGE}
+    network_mode: host
+    environment: *deployment
+    command:
+      - --sensor-id
+      - ${LIDAR_B_SENSOR_ID:?}
+      - --edge-id
+      - ${EDGE_ID:?}
+      - --config-revision
+      - ${CONFIG_REVISION:?}
+      - --ip
+      - ${LIDAR_B_IP:?}
+      - --port
+      - "8089"
+      - --schema-version
+      - "2.0"
+      - --endpoint
+      - unix:/sockets/b/scan.sock
+      - --status-dir
+      - /status
+    volumes:
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/b
+        target: /sockets/b
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+
+  calibration-api:
+    <<: *common
+    image: ${AJIN_EDGE_ORCHESTRATOR_IMAGE}
+    entrypoint: [edge-v2, calibration-api]
+    command: [--config, /config/runtime.json]
+    # The API binds the loopback or Tailscale address of CALIBRATION_API_HOST on the host network.
+    network_mode: host
+    environment: *deployment
+    group_add:
+      - "${CALIBRATION_API_GID:?}"
+    secrets:
+      - calibration_api_token
+    volumes:
+      - type: bind
+        source: ${CONFIG_FILE}
+        target: /config/runtime.json
+        read_only: true
+      - type: bind
+        source: ${CONTROL_DIR}
+        target: /control
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/delivery
+        target: /sockets/delivery
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+    healthcheck:
+      test: [CMD, edge-healthcheck, /status/calibration-api.json]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  lidar-processing:
+    <<: *common
+    image: ${AJIN_LIDAR_PROCESSING_IMAGE}
+    entrypoint: [edge-v2, processing]
+    command: [--config, /config/runtime.json]
+    environment: *deployment
+    volumes:
+      - type: bind
+        source: ${CONFIG_FILE:?}
+        target: /config/runtime.json
+        read_only: true
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/a
+        target: /sockets/a
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/b
+        target: /sockets/b
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/observations
+        target: /sockets/observations
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/delivery
+        target: /sockets/delivery
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/clock
+        target: /clock
+        read_only: true
+        <<: *runtime-bind
+      - type: bind
+        source: ${CONTROL_DIR:?}
+        target: /control
+        read_only: true
+        <<: *runtime-bind
+    depends_on:
+      calibration-api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, edge-healthcheck, /status/lidar-processing.json]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  measurement-uplink:
+    <<: *common
+    image: ${AJIN_MEASUREMENT_UPLINK_IMAGE}
+    entrypoint: [edge-v2, uplink]
+    command: [--config, /config/runtime.json]
+    environment:
+      <<: *deployment
+      SSL_CERT_FILE: /run/scrap-monitoring/pki/root_ca.crt
+    group_add:
+      - "${EDGE_UPLINK_GID:?}"
+    secrets:
+      - edge_token
+    volumes:
+      - type: bind
+        source: ${CONFIG_FILE}
+        target: /config/runtime.json
+        read_only: true
+      - *root-ca
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/delivery
+        target: /sockets/delivery
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/outbox
+        target: /data/outbox
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+      - type: bind
+        source: ${CONTROL_DIR:?}
+        target: /control
+        read_only: true
+        <<: *runtime-bind
+    depends_on:
+      calibration-api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, edge-healthcheck, /status/measurement-uplink.json]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  edge-orchestrator:
+    <<: *common
+    image: ${AJIN_EDGE_ORCHESTRATOR_IMAGE}
+    entrypoint: [edge-v2, orchestrator]
+    command: [--config, /config/runtime.json]
+    environment:
+      <<: *deployment
+      SSL_CERT_FILE: /run/scrap-monitoring/pki/root_ca.crt
+    group_add:
+      - "${EDGE_UPLINK_GID}"
+    secrets:
+      - edge_token
+    volumes:
+      - type: bind
+        source: ${CONFIG_FILE}
+        target: /config/runtime.json
+        read_only: true
+      - *root-ca
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/observations
+        target: /sockets/observations
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/sockets/delivery
+        target: /sockets/delivery
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+      - type: bind
+        source: ${RUNTIME_DIR}/clock
+        target: /clock
+        read_only: true
+        <<: *runtime-bind
+      - type: bind
+        source: ${CONTROL_DIR:?}
+        target: /control
+        read_only: true
+        <<: *runtime-bind
+    depends_on:
+      calibration-api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, edge-healthcheck, /status/edge-orchestrator.json]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  camera-edge:
+    <<: *common
+    image: ${AJIN_CAMERA_EDGE_IMAGE}
+    environment:
+      CAMERA_ID: ${CAMERA_ID}
+      EDGE_ID: ${EDGE_ID}
+      CONFIG_REVISION: ${CONFIG_REVISION}
+      DEPLOYMENT_REVISION: ${DEPLOYMENT_REVISION}
+      MEDIA_WSS_URL: ${MEDIA_WSS_URL:?}
+      CAMERA_TOKEN_FILE: /run/secrets/camera_token
+      EDGE_STATUS_DIR: /status
+      CAMERA_DEVICE: /dev/video0
+      SSL_CERT_FILE: /run/scrap-monitoring/pki/root_ca.crt
+    devices:
+      - ${CAMERA_DEVICE:?}:/dev/video0
+    group_add:
+      - "${VIDEO_GID:?}"
+      - "${CAMERA_AGENT_GID:?}"
+    secrets:
+      - camera_token
+    volumes:
+      - *root-ca
+      - type: bind
+        source: ${RUNTIME_DIR}/status
+        target: /status
+        <<: *runtime-bind
+
+secrets:
+  calibration_api_token:
+    file: ${CALIBRATION_TOKEN_FILE:?}
+  edge_token:
+    file: ${EDGE_TOKEN_FILE:?}
+  camera_token:
+    file: ${CAMERA_TOKEN_FILE:?}
