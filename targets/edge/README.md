@@ -26,6 +26,7 @@ Edge의 기존 Root CA 인증서는 EDGE_ROOT_CA_FILE에서 읽고 필요한 Con
 연결한다. 배포 과정에서 Root CA를 생성하거나 교체하지 않는다.
 
 `compose.yaml`의 service는 LiDAR Driver 2개, `calibration-api`, Processing, Uplink, Orchestrator와 Camera Edge다.
+Edge runtime host 경로는 `delivery/install-edge-runtime`으로 준비한다.
 Runtime JSON이 사용할 Container 경로는
 [docs/configuration-management.md](../../docs/configuration-management.md)를 따른다.
 

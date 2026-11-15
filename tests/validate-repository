@@ -15,6 +15,7 @@ jq empty .markdownlint.json package.json package-lock.json
   tools/build-component-image \
   tools/check-component-updates \
   delivery/edge_configuration.py \
+  delivery/edge_runtime.py \
   delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \
@@ -35,6 +36,7 @@ jq empty .markdownlint.json package.json package-lock.json
   tools/build-component-image \
   tools/check-component-updates \
   delivery/edge_configuration.py \
+  delivery/edge_runtime.py \
   delivery/dashboard_configuration.py \
   delivery/offline/bundle_importer.py \
   delivery/release_applier.py \
@@ -56,6 +58,7 @@ go -C tools tool actionlint "${repository}"/.github/workflows/*.yml
 .venv/bin/python release/validate-targets \
   --version v0.0.1 --manifest release/manifest.example.json
 shellcheck --source-path=SCRIPTDIR \
+  delivery/install-edge-runtime \
   delivery/validate-edge-configuration \
   delivery/apply-release \
   delivery/auth-secret-permissions.sh \

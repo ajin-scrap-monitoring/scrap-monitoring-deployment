@@ -65,7 +65,7 @@ file 0640을 사용한다. `delivery/install-container-runtime --target <edge|se
 ## Component 설정과 파생값
 
 Edge의 v2 runtime 설정은 /opt/ajin/config/edge-v2.runtime.json에서 관리한다. Edge 환경 schema는
-version `5`이며 v1 환경 파일과 저장소를 자동 변환하지 않는다. 승인된
+version `6`이며 v1 환경 파일과 저장소를 자동 변환하지 않는다. 승인된
 보정값, 센서 매핑과 service version manifest는 Component 설정의 책임이다.
 장비 환경설정이 소유하는 SITE_ID, EDGE_ID,
 CAMERA_ID와 CONFIG_REVISION은 장비별 값이다. 배포 적용기는 `configuration`의 `site_id`, `edge_id`,

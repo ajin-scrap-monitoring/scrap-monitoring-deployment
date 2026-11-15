@@ -9,7 +9,8 @@ Shell, systemd, Release asset, checksum과 Public 범위를 검사하고 High �
 거부한다. Release workflow는 같은 Validation container와 보호된 version tag,
 원격 `main`, version manifest, 대상별 component와
 Compose image 변수의 일치를 검증한다. 읽기 전용 build job은 계약에 맞는 GHCR image 취득, asset 생성과
-독립 검증을 수행하고 쓰기 권한을 가진 publish job은 검증된 artifact만 Draft Release로 게시한다.
+독립 검증을 수행하고 쓰기 권한을 가진 publish job은 검증된 artifact를 Draft Release에 생성한 뒤
+검증 완료 시 공개 Release로 전환한다.
 `component-images.yml`은 수동 실행으로 component image를 선택하고 필요한 image를 빌드한다.
 
 환경설정은 Release 설정, 장비 환경설정, Component 설정, 비밀정보와 PKI 상태로 분리되어 있다.
@@ -27,7 +28,7 @@ Dashboard runtime JSON 최초 설치, 기존 파일 보존, 필드와 식별자 
 `delivery/dashboard_configuration.py`를 실행한다. 설치는 directory 및 파일 lock과 no-clobber
 전환을 사용하며 실패 시 기존 설정을 변경하지 않는다. 재현 명령과 설정 소유권은
 [docs/configuration-management.md](configuration-management.md)의 Dashboard 설정을 따른다.
-두 도구와 Python module은 Server의 Online Package와 Offline Bundle에만 포함된다. Server Release 적용과 systemd 시작은 runtime JSON 검증을 수행한다. Compose mount와
+두 도구와 Python module은 Server의 Online Package와 Offline Bundle에만 포함된다. Server Release 적용과 systemd 시작은 runtime JSON 검증을 수행한다. `targets/server/compose.yaml`은 생성된 `runtime-config.json`을 read-only로 mount하며
 Backend 식별자 자동 주입은 구현되지 않았다.
 
 `tests/test_dashboard_configuration.py`는 식별자 경계, 잘못된 JSON, 기존 byte 및 inode 보존,
@@ -100,15 +101,21 @@ tree를 표준 `targets/<target>` 경로로 포함한다. Edge 환경 schema `6`
 Dashboard TLS, Media SD 저장소와 PostgreSQL 초기화 파일 경로를 사용한다.
 `delivery/edge_configuration.py`와 `delivery/validate-edge-configuration`은 배포 입력 구조와
 Compose의 container 경로 일치를 검증하며 Component의 domain validator를 복제하지 않는다.
+`delivery/edge_runtime.py`와 `delivery/install-edge-runtime`은 Edge v2 Compose가 mount하는 runtime 및
+제어 하위 directory를 UID/GID `10001:10001`과 mode `0750`으로 준비하고 검증한다.
+`delivery/apply-release`의 사전 검사는 Edge의 runtime 및 제어 하위 directory와 실제 host `/` 적용 시
+UID/GID `10001:10001` 소유권을 확인하고, Server의 `POSTGRESQL_INIT_DIRECTORY` 내 `init.sh`, `roles.sql`,
+`runtime-grants.sql` 파일 존재 여부를 확인한다. `targets/server/compose.yaml`은 `scrap-backend`에
+`mem_limit: 1g`를 지정한다.
 배포 적용기는 검증한 정확한 byte의 SHA-256을 생성하며 Edge systemd도 실행 전에 같은 입력을
 검사한다. Compose 구성과 미확정 항목은 `장비별 개발 구성`과 `미확정 구현 결정`을 따른다.
 
-실제 통합 version manifest와 Release는 없다. 실제 장비에서 전체 시스템을 연결하는 통합 수락
-검사는 완료되지 않았다.
+통합 version manifest `release/manifests/v0.1.0.json`과 통합 Release `v0.1.0`이 게시되어 있다.
+실제 장비에서 전체 시스템을 연결하는 통합 수락 검사는 완료되지 않았다.
 
 ## Component 연동 상태
 
-확인한 외부 source 기준은 4개이며 마지막 확인일은 2026-11-15다. 각 기준은 원격 `main`의 full Git commit으로 고정한다.
+확인한 외부 source 기준은 4개이며 마지막 확인일은 2026-11-16다. 각 기준은 원격 `main`의 full Git commit으로 고정한다.
 이 표는 계약 확인 기준이며 장비의 배포 image 목록이 아니다. 장비 실행 상태는 아래의
 `장비별 개발 구성`을 따른다.
 Source 구현, 공개 Release와 개발 장비의 구동 상태는 별도로 판정한다. Source 확인은 image 실행이나
@@ -125,16 +132,16 @@ Component의 현재 계약이 이 Repository의 정책과 충돌하면 Component
 | Repository | 확인한 source |
 | --- | --- |
 | Edge Platform | [cfc692599023f7ab52c209529a101e5a830bc893](https://github.com/ajin-scrap-monitoring/ajin-edge-platform/tree/cfc692599023f7ab52c209529a101e5a830bc893) |
-| Backend | [21f78942ff28d114421b1934d41642e6b334d084](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/21f78942ff28d114421b1934d41642e6b334d084) |
+| Backend | [530a6ac81c1c85b86993321488fe7c5b3d9d01bb](https://github.com/ajin-scrap-monitoring/scrap-monitoring-backend/tree/530a6ac81c1c85b86993321488fe7c5b3d9d01bb) |
 | Camera Media Service | [b9d3308916b59f8b2eb067c4b0685e1952fc8023](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/tree/b9d3308916b59f8b2eb067c4b0685e1952fc8023) |
-| Dashboard | [eb0b215f01bc9d6959f8a78f81fc19e28e5bdbb1](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/eb0b215f01bc9d6959f8a78f81fc19e28e5bdbb1) |
+| Dashboard | [eecf6fcf079c120f7a26a548b80651f3b869f4f8](https://github.com/ajin-scrap-monitoring/scrap-monitoring-dashboard/tree/eecf6fcf079c120f7a26a548b80651f3b869f4f8) |
 
 | Component | 고정 source의 계약 | 배포 미완료 사항 |
 | --- | --- | --- |
-| Edge Platform | `v0.1.1` Public ARM64 v1 image, v2 processing, uplink, orchestrator와 calibration API의 `edge-v2` entrypoint와 runtime JSON, Driver `--schema-version 2.0`, file token과 Camera WSS | v2 Release와 v2 Compose 예제, Release workflow의 Package 공개 범위 |
-| Backend | `v0.2.0` Public AMD64 image(main은 7 commit 앞섬), v2 Bearer ingest와 저장 Acknowledgement (ACK), `EDGE_V2_DEVICES` 원문 token JSON, PostgreSQL 17 Compose 계약과 role 분리, Alembic schema, 계정과 session, Media 제어 Application Programming Interface (API)와 날짜 녹화, health와 readiness | `MEDIA_API_TOKEN` 필수 조건, PostgreSQL 초기화 파일 전달, migration 및 backup 자동화, ingest request limit |
+| Edge Platform | `v0.1.1` Public ARM64 v1 image, v2 processing, uplink, orchestrator와 calibration API의 `edge-v2` entrypoint와 runtime JSON, Driver `--schema-version 2.0`, file token과 Camera WSS (`camera-edge`는 `websockets` SSL context, `v2` `runtime.py`는 `httpx.AsyncClient(trust_env=False)`) | v2 Release와 v2 Compose 예제, Release workflow의 Package 공개 범위, `httpx(trust_env=False)`의 `SSL_CERT_FILE` 무시 해소 |
+| Backend | `v0.2.0` Public AMD64 image(비공개 설정 서버 용량 경고 CLI 포함), v2 Bearer ingest와 저장 Acknowledgement (ACK), `EDGE_V2_DEVICES` 원문 token JSON, PostgreSQL 17 Compose 계약과 role 분리, Alembic schema, 계정과 session, Media 제어 Application Programming Interface (API)와 날짜 녹화, health와 readiness | `MEDIA_API_TOKEN` 필수 조건, PostgreSQL 초기화 파일 전달 자동화, migration 및 backup 자동화 |
 | Camera Media Service | AMD64 Dockerfile과 SD 저장소 Compose 계약(`compose.sd.yaml`, `SD_STORAGE.md`), Camera별 Bearer binary JPEG ingest, `EDGE_AUTH_SECRET` 원문 token JSON, 내부 HTTP API, MJPEG live와 MP4 clip, 날짜 녹화 | Release, SD host preflight 전달, Dockerfile의 health check |
-| Dashboard | `v0.6.0` Public AMD64 image, v2 모니터링과 MJPEG, 날짜 녹화 및 MP4, runtime JSON, TLS 및 reverse proxy 설정 asset과 배포 예제 | 통합 Compose mount와 Release 적용 연결, Edge ingest 경로의 Dashboard 수용 여부, timeout과 Content Security Policy (CSP)의 통합 검증 |
+| Dashboard | `v1.0.0` Public AMD64 image, v2 모니터링과 MJPEG, 날짜 녹화 및 MP4, runtime JSON, TLS 및 reverse proxy 설정 asset과 배포 예제 | Edge ingest 경로의 Dashboard 수용 여부, timeout과 Content Security Policy (CSP)의 통합 검증 |
 
 Release 기준은 다음과 같다.
 
@@ -143,9 +150,9 @@ Release 기준은 다음과 같다.
 | Edge Platform Release | `v0.1.1` | v1 image |
 | Backend Release | `v0.2.0` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-backend@sha256:3ce9df2e224654f7f8c9b1a6618df676dc091b93ea211f2c3f7324c972396ee3` |
 | Camera Media Service Release | 없음 | GHCR Package 없음 |
-| Dashboard Release | `v0.6.0` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:f7057607a0b20aae9d569012370869d6aa72cdb0b748d69d6e8c96d17067217d` |
+| Dashboard Release | `v1.0.0` | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199` |
 
-Dashboard의 마지막 Release 이후 `main` 변경은 문서에 한정된다.
+Dashboard의 마지막 Release 이후 `main` 변경은 `.env.example`의 기본 image digest 갱신에 한정된다.
 
 Edge와 Backend의 수신 경로 및 저장 ACK 계약은
 [docs/deployment-contract.md](deployment-contract.md)의 Component 연동을 따른다.
@@ -173,7 +180,8 @@ Camera Media Service의 `/api/v2` 날짜 녹화는 기존 `/api/v1` clip API와 
 비활성이며 활성화에는 `MAX_DAILY_STORAGE_BYTES`의 명시적 저장 예산이 필요하다. 원본과 다운로드
 cache의 합산 예산 및 최소 여유 공간 검사는 전체 filesystem quota나 보관 기간 보장을 대체하지
 않는다. Media Dockerfile은 UID `10002`의 non-root 사용자를 지정하며 공식 Compose는 loopback
-port와 clip 목록 health check를 사용한다. 이 Repository의 통합 Compose 연결은 구현되지 않았다.
+port와 clip 목록 health check를 사용한다. `targets/server/compose.yaml`은 `camera-media` service에
+`read_only`를 지정하지 않고 SD 저장소와 witness parent bind mount를 연결한다.
 실시간 영상과 이벤트 클립의 Media 경로는 `/api/v1`, 날짜 녹화 경로는 `/api/v2`다. 기능별
 경로를 하나의 version prefix로 일괄 치환하지 않는다. 이벤트 클립은 Media의 최초 요청 접수
 시각을 기준으로 생성하며 사건 발생 시각을 요청으로 전달하지 않는다. Media의 실시간 수신 FPS와
@@ -185,15 +193,15 @@ Release가 게시한 참조는 다음과 같으며 이 배포 Repository의 imag
 
 | 항목 | 게시 값 |
 | --- | --- |
-| Release source | `1699cad895754096d43ad88ec960e2a8b9434d6f` |
-| image 참조 | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:aa375625e3a37a2c1f883dadedeac5717882924ce4400aea6696660e0fac9f32` |
-| 배포 asset | `image-reference.txt`, `nginx-config.tar.gz`, `runtime-config.example.json`, `runtime-config.schema.json`, `SHA256SUMS` |
+| Release source | `594222347b878cd7b17e976f92b45d1ce3f48be5` |
+| image 참조 | `ghcr.io/ajin-scrap-monitoring/scrap-monitoring-dashboard@sha256:2ef04951ebcff89986cab938dd6a5ae54cdd4f6041f5412c12246e9445742199` |
+| 배포 asset | `contract-manifest.json`, `deployment-example.tar.gz`, `image-reference.txt`, `nginx-config.tar.gz`, `runtime-config.example.json`, `runtime-config.schema.json`, `SHA256SUMS` |
 
 Release 게시 상태는 개발용 Dashboard Container의 실행 version을 의미하지 않는다. 고정 source는
 `camera-edge`의 상태를 카메라 행에 연결하며 수신 시각과 지연시간은 미제공 값으로 유지한다.
 Camera Edge의 상태 갱신 시각을 영상 촬영 시각이나 전송 지연으로 해석하지 않는다.
 
-Backend와 Camera Media Service의 공개 Release는 없다. 개발용 local image를 공식 Release image로
+Camera Media Service의 공개 Release는 없다. 개발용 local image를 공식 Release image로
 간주하지 않는다. Dashboard Release의 Backend 계약 기준은 해당 Release의
 `docs/contracts/backend/manifest.json`을 따르며 최신 Backend와 자동으로 일치한다고 간주하지 않는다.
 연동 경로와 proxy 동작은
@@ -208,7 +216,7 @@ Backend와 Camera Media Service의 공개 Release는 없다. 개발용 local ima
 현재 Release 조합의 최종 통합 검증은 완료되지 않았다. Media 접근 검사는 유효한 session만
 확인하며 camera 또는 pit별 접근 권한은 제공하지 않는다.
 
-Edge v2 ingest의 최대 request byte는 미확정이며 v1의 64 KiB 제한을 v2 승인값으로 사용하지 않는다.
+`targets/server/dashboard/nginx/runtime/30-edge-ingest-locations.conf`는 Edge v2 ingest location에 `client_max_body_size 16m`을 설정하여 Dashboard `20-dashboard-locations.conf`의 `server` 블록 `1m` 제한과 분리하고 `delivery/edge_configuration.py`의 `16 MiB` 제한과 맞춘다.
 
 Edge Platform의 5개 GHCR Package는 모두 Public이며 대상 Edge에서 로그인 없이 digest 고정 pull을
 사용한다.
@@ -429,10 +437,12 @@ scrap-monitoring-deployment/
 |   |-- auth-secret-permissions.sh
 |   |-- dashboard_configuration.py
 |   |-- edge_configuration.py
+|   |-- edge_runtime.py
 |   |-- generate-auth-secret
 |   |-- install-auth-secret
 |   |-- install-container-runtime
 |   |-- install-dashboard-configuration
+|   |-- install-edge-runtime
 |   |-- install-environment
 |   |-- quick-start
 |   |-- release_applier.py
@@ -678,7 +688,7 @@ Release를 정의한다. PostgreSQL과 `step-ca`는 선택 대상이 아니며 c
 | Edge Platform 5개 | `release-manifest.json`의 `images` | `v0.2.0` (v2 포함 version) |
 | Backend | `image-reference.txt`와 `SHA256SUMS` | `v0.2.0` |
 | Camera Media Service | `image-reference.txt`와 `SHA256SUMS` | `v0.1.0` |
-| Dashboard | `image-reference.txt`와 `SHA256SUMS` | `v0.6.0` |
+| Dashboard | `image-reference.txt`와 `SHA256SUMS` | `v1.0.0` |
 
 `release/resolve-components resolve`는 `release/component_images.py`의 결정 규칙으로 component별
 최신 Release와 원격 `main`의 full commit을 조회한다. 최신 Release가 최소 호환 Release 이상이고 공식 image
@@ -719,10 +729,10 @@ Release 준비 절차는 다음과 같다.
    `v0.0.0`으로 둔다. PostgreSQL과 `step-ca` 항목은 검증한 digest와 출처 값으로 직접 채운다.
 4. `release/update-candidate --results component-images.json`으로 선택 대상 component 항목을 갱신한다.
 5. candidate 변경을 PR로 검토하고 병합한다.
-6. `release/update-candidate --finalize v0.1.0`이 `release/manifests/v0.1.0.json`을 만든다. placeholder
+6. `release/update-candidate --finalize vMAJOR.MINOR.PATCH`가 `release/manifests/vMAJOR.MINOR.PATCH.json`을 만든다. placeholder
    revision, schema 위반, Private Package와 `component-release`가 아닌 Dashboard를 거부한다.
-7. version manifest를 PR로 병합한 뒤 `main` commit에 `v0.1.0` tag를 push하면 `release.yml`이 asset을 생성하고
-   Draft Release를 게시한다. 첫 통합 Release 대상 version은 `v0.1.0`이다.
+7. version manifest를 PR로 병합한 뒤 `main` commit에 `vMAJOR.MINOR.PATCH` tag를 push하면 `release.yml`이 asset을 생성하고
+   Draft Release를 생성한 뒤 검증 완료 시 공개 Release로 전환한다.
 
 `release.yml`은 image를 빌드하지 않고 manifest의 digest 고정 image만 pull한다. `release/pull-images`는
 pull 후 대상 platform과 image의 os/arch 일치를 확인하며 `deployment-build` image도 같은 경로로
@@ -735,11 +745,9 @@ Offline Bundle에 포함한다.
 - Edge v2 Release와 v2 Compose 예제
 - Edge Release workflow가 Package를 private로 강제하는 문제와 Public 공개 범위 확인
 - Backend의 `MEDIA_API_TOKEN` 필수 조건과 Media 내부 API의 Bearer 미사용 불일치
-- Edge v2 ingest request byte 제한
 - Database migration, backup 선행 조건과 rollback 자동화
 - 기존 장비의 named volume 데이터를 `POSTGRES_DATA_PATH` bind 경로로 이전하는 절차
-- Backend PostgreSQL 초기화 파일(`init.sh`, `roles.sql`, `runtime-grants.sql`)의 전달 방식
-- Edge container의 Root CA 신뢰 방식(`SSL_CERT_FILE` 가정의 component 계약 확인)
-- Edge v2 runtime directory 준비 도구
+- Backend PostgreSQL 초기화 파일(`init.sh`, `roles.sql`, `runtime-grants.sql`)의 전달 자동화 방식 (`delivery/apply-release` 사전 존재 검사는 구현됨)
+- Edge container의 Root CA 신뢰 방식 (`camera-edge`는 `websockets`의 `ssl.create_default_context()`를 사용하나 `v2/runtime.py`, `measurement-uplink`, `edge-orchestrator`는 `httpx 0.28.1`에서 `httpx.AsyncClient(trust_env=False)`로 `SSL_CERT_FILE`을 무시하므로 `ajin-edge-platform` 수정 필요)
 - Backend의 제어 API 호출 구성
 - Camera Media Service의 read-only root filesystem 지원 여부

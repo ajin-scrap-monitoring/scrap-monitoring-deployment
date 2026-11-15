@@ -124,6 +124,19 @@ class ReleaseTargetValidationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not build"):
                 validate_target(repository, manifest_with_components(), "edge")
 
+    def test_server_compose_and_nginx_edge_ingest_match_deployment_bounds(self) -> None:
+        repository = Path(__file__).resolve().parents[1]
+        server = repository / "targets" / "server"
+        model = compose_model(server, {}, interpolate=False)
+        self.assertEqual(
+            "1g",
+            model["services"]["scrap-backend"]["mem_limit"],
+        )
+        edge_ingest = (
+            server / "dashboard" / "nginx" / "runtime" / "30-edge-ingest-locations.conf"
+        ).read_text(encoding="utf-8")
+        self.assertIn("client_max_body_size 16m;", edge_ingest)
+
 
 if __name__ == "__main__":
     unittest.main()

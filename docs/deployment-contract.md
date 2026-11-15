@@ -277,6 +277,7 @@ version, target, 적용 결과, 활성 경로와 직전 경로만 기록한다.
 | `delivery/online/fetch-release` | `--version`, `--target`, `--output` | 명시한 Online Package와 checksum의 검증된 원자적 취득 |
 | `delivery/install-container-runtime` | `--target {edge,server}` | `scrap-admin` 시스템 그룹, 공통 배포 도구와 고정 Container runtime 설치 및 version 검증, Server의 고정 PKI 도구 설치와 version 검증 |
 | `delivery/install-environment` | `--target {edge,server}`, 시험용 `--root` | 환경 template 최초 설치 또는 기존 파일 보존, 권한과 schema 검증 |
+| `delivery/install-edge-runtime` | Edge 환경 파일, 시험용 `--root` | Edge v2 Compose가 mount하는 runtime 및 제어 directory 생성, 권한과 소유권 검증 |
 | `delivery/install-dashboard-configuration` | `--pit-id`, `--camera-id`, 시험용 `--root` | Server runtime JSON 최초 설치 또는 동일 식별자의 기존 파일 보존, JSON과 권한 검증 |
 | `delivery/validate-dashboard-configuration` | 선택적 `--expected-pit-id`, `--expected-camera-id`, 시험용 `--root` | 설치한 runtime JSON의 필드, 식별자, 파일 권한과 expected 입력 일치 검증 |
 | `delivery/quick-start` | `--version`, `--target`, `--output` | Online Package 취득, 적용과 systemd active 상태 확인 |

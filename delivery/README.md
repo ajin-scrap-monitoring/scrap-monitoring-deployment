@@ -4,6 +4,7 @@
 
 `install-container-runtime`은 대상 host의 배포 의존성을 설치하고 version을 검증한다.
 `install-environment`는 대상의 환경 파일을 설치하거나 기존 파일을 보존하고 검증한다.
+`install-edge-runtime`은 Edge v2 Compose가 mount하는 runtime 및 제어 directory를 생성하고 UID `10001` 소유권과 권한을 맞춘다.
 `validate-edge-configuration`은 v2 runtime의 배포 입력을 읽기 전용으로 검사한다.
 환경 파일의 소유권과 동기화는
 [docs/configuration-management.md](../docs/configuration-management.md)를 따른다.

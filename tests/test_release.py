@@ -623,6 +623,11 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("targets/edge/compose.yaml", names)
             self.assertIn("docs/configuration-management.md", names)
             self.assertIn("delivery/validate-environment", names)
+            self.assertIn("delivery/edge_runtime.py", names)
+            self.assertIn("delivery/install-edge-runtime", names)
+            self.assertEqual(
+                0o755, archive.getmember("delivery/install-edge-runtime").mode
+            )
             self.assertIn("delivery/quick-start", names)
             self.assertIn("delivery/release_applier.py", names)
             self.assertNotIn("delivery/install-dashboard-configuration", names)
@@ -661,6 +666,8 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertIn("pki/config/ca.template.json", names)
             self.assertIn("docs/configuration-management.md", names)
             self.assertIn("delivery/validate-environment", names)
+            self.assertIn("delivery/edge_runtime.py", names)
+            self.assertNotIn("delivery/install-edge-runtime", names)
             self.assertIn("delivery/dashboard_configuration.py", names)
             for entrypoint in (
                 "delivery/install-dashboard-configuration",
@@ -671,6 +678,8 @@ class ReleaseAssetsTest(unittest.TestCase):
             self.assertFalse(any(name.startswith("images/") for name in names))
         with tarfile.open(edge_offline, "r:gz") as archive:
             self.assertIn("delivery/edge_configuration.py", archive.getnames())
+            self.assertIn("delivery/edge_runtime.py", archive.getnames())
+            self.assertIn("delivery/install-edge-runtime", archive.getnames())
             self.assertIn("delivery/validate-edge-configuration", archive.getnames())
             self.assertEqual(
                 0o755, archive.getmember("delivery/validate-edge-configuration").mode

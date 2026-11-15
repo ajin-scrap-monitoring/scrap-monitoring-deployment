@@ -109,7 +109,7 @@
       "officialImage": {
         "asset": "image-reference.txt"
       },
-      "minimumRelease": "v0.6.0"
+      "minimumRelease": "v1.0.0"
     }
   ]
 }
