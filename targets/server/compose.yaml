@@ -130,6 +130,7 @@ services:
       DEBUG: "false"
       PYTHONDONTWRITEBYTECODE: "1"
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?}
+      MEDIA_AUTH_MODE: internal
     depends_on:
       postgres:
         condition: service_healthy

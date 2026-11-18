@@ -132,6 +132,10 @@ class ReleaseTargetValidationTest(unittest.TestCase):
             "1g",
             model["services"]["scrap-backend"]["mem_limit"],
         )
+        self.assertEqual(
+            "internal",
+            model["services"]["scrap-backend"]["environment"]["MEDIA_AUTH_MODE"],
+        )
         edge_ingest = (
             server / "dashboard" / "nginx" / "runtime" / "30-edge-ingest-locations.conf"
         ).read_text(encoding="utf-8")
